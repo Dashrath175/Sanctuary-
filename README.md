@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://your-project.vercel.app"><img alt="Live demo" src="https://img.shields.io/badge/live%20demo-open-47ffa9?style=for-the-badge&labelColor=05040a"></a>
+  <a href="https://sanctuary-one-sigma.vercel.app"><img alt="Live demo" src="https://img.shields.io/badge/live%20demo-open-47ffa9?style=for-the-badge&labelColor=05040a"></a>
   <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-ece4d0?style=for-the-badge&logo=nextdotjs&logoColor=ece4d0&labelColor=05040a">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-74e5dc?style=for-the-badge&logo=react&logoColor=74e5dc&labelColor=05040a">
   <img alt="three.js" src="https://img.shields.io/badge/three.js-r186-ff6a1f?style=for-the-badge&logo=threedotjs&logoColor=ff6a1f&labelColor=05040a">
