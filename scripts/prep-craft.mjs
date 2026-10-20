@@ -9,6 +9,11 @@
 //
 // Sources (public domain): github.com/nasa/NASA-3D-Resources (3D Models/…), and the New
 // Horizons model from science.nasa.gov/resource/new-horizons-3d-model/.
+//
+// The two story ships come from Sketchfab (CC BY 4.0, credited in the README) by way of
+// scripts/story-ships.py in Blender (damage, decimation): kestrel.glb and halcyon.glb, and the
+// commander's own ship (Sketchfab, CC BY 4.0) for the cutscenes: vessel.glb.
+// To rebuild only some files, name them:  node prep-craft.mjs <src> <out> kestrel,halcyon,vessel
 
 import fs from "node:fs";
 import path from "node:path";
@@ -19,7 +24,7 @@ import { MeshoptEncoder, MeshoptSimplifier } from "meshoptimizer";
 import draco3d from "draco3dgltf";
 import sharp from "sharp";
 
-const [srcDir, outDir] = process.argv.slice(2);
+const [srcDir, outDir, only] = process.argv.slice(2);
 if (!srcDir || !outDir) {
   console.error("usage: node prep-craft.mjs <source dir> <out dir>");
   process.exit(1);
@@ -37,7 +42,36 @@ const MODELS = {
   stereo: { src: "stereo.glb", span: 6.47, drop: [], ratio: 0.6, error: 0.002 },
   "new-horizons": { src: "new-horizons.glb", span: 2.7, drop: [], ratio: 1 },
   voyager: { src: "voyager.glb", span: 16.41, drop: [], ratio: 0.9, error: 0.001 },
+  // story ships, at the spans in solar.ts
+  // the wreck draws only its silhouette, big folds and the torn edges of its breaches
+  kestrel: { src: "kestrel.glb", span: 46, drop: [], ratio: 1, edgeAngle: 55 },
+  halcyon: { src: "halcyon.glb", span: 120, drop: [], ratio: 0.75, error: 0.001 },
+  // the commander's own ship (cutscenes only); nose +Z, up +Y
+  vessel: { src: "vessel.glb", span: 28, drop: [], ratio: 1, edgeAngle: 38 },
 };
+
+/** One RGB vertex colour set at most (the darkest, i.e. the baked scorching), one UV set. */
+function tidyAttributes(doc) {
+  const root = doc.getRoot();
+  const buffer = root.listBuffers()[0];
+  for (const mesh of root.listMeshes()) {
+    for (const p of mesh.listPrimitives()) {
+      let best = null, low = Infinity;
+      for (const s of p.listSemantics().filter((s) => s.startsWith("COLOR_"))) {
+        const a = p.getAttribute(s), v = new Float32Array(a.getCount() * 3), el = [];
+        let m = Infinity;
+        for (let i = 0; i < a.getCount(); i++) {
+          a.getElement(i, el);
+          v.set([el[0], el[1], el[2]], i * 3);
+          m = Math.min(m, el[0]);
+        }
+        if (m < low) [best, low] = [v, m];
+      }
+      for (const s of p.listSemantics()) if (s.startsWith("COLOR_") || /^TEXCOORD_[1-9]/.test(s)) p.setAttribute(s, null);
+      if (best && low < 0.95) p.setAttribute("COLOR_0", doc.createAccessor().setType("VEC3").setArray(best).setBuffer(buffer));
+    }
+  }
+}
 
 await MeshoptEncoder.ready;
 await MeshoptSimplifier.ready;
@@ -109,6 +143,7 @@ function featureEdges(pos, idx, angleDeg) {
 
 fs.mkdirSync(outDir, { recursive: true });
 for (const [id, m] of Object.entries(MODELS)) {
+  if (only && !only.split(",").includes(id)) continue;
   const doc = await io.read(path.join(srcDir, m.src));
   const root = doc.getRoot();
   for (const n of root.listNodes()) if (m.drop.includes(n.getName())) n.dispose();
@@ -126,13 +161,14 @@ for (const [id, m] of Object.entries(MODELS)) {
   }
   scene.addChild(holder);
 
+  tidyAttributes(doc);
   await doc.transform(dedup(), flatten(), join(), weld(), prune());
   if (m.ratio < 1) await doc.transform(simplify({ simplifier: MeshoptSimplifier, ratio: m.ratio, error: m.error ?? 0.001 }));
 
   // feature edges, as a line primitive next to each mesh's triangles
   let tris = 0;
   for (const mesh of root.listMeshes()) for (const p of mesh.listPrimitives()) tris += (p.getIndices()?.getCount() ?? p.getAttribute("POSITION").getCount()) / 3;
-  const angle = tris > 120_000 ? 42 : tris > 60_000 ? 34 : 26;
+  const angle = m.edgeAngle ?? (tris > 120_000 ? 42 : tris > 60_000 ? 34 : 26);
   const edgeMat = doc.createMaterial("craft-edges");
   const buffer = root.listBuffers()[0];
   let segs = 0;

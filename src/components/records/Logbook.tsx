@@ -3,12 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUI } from "@/lib/store";
 import { audio } from "@/lib/audio";
-import { AU_KM, BODIES, CATEGORIES, ephemeris, type BodyDef, type Fact, type Kind } from "@/lib/solar";
+import { AU_KM, BODIES, CATEGORIES, PROP_IDS, ephemeris, type BodyDef, type Fact, type Kind } from "@/lib/solar";
 import { useObservatory } from "../Observatory";
 import RecordPreview from "./RecordPreview";
 import { thumbFor } from "./thumbs";
 
 const isVehicle = (k: Kind) => k === "spacecraft" || k === "satellite";
+/** which shelf a record sits on, for the detail panel's counter */
+const shelf = (b: BodyDef) => (PROP_IDS.includes(b.id) ? "PROP" : isVehicle(b.kind) ? "VEHICLE" : "WORLD");
+/** the props in the order the story meets them */
+const inCategory = (has: (b: BodyDef) => boolean, id: string) =>
+  id === "props" ? PROP_IDS.map((p) => BODIES.find((b) => b.id === p)!).filter(Boolean) : BODIES.filter(has);
 
 /** "9.57 AU · 1,432 MILLION KM" from the Sun, right now */
 function fromSun(id: string) {
@@ -30,7 +35,7 @@ export default function Logbook() {
 
   const known = useMemo(() => new Set([...identified, ...reached]), [identified, reached]);
   const total = CATEGORIES.reduce((s, c) => s + c.slots, 0);
-  const ordered = useMemo(() => CATEGORIES.flatMap((c) => BODIES.filter((b) => c.kinds.includes(b.kind))), []);
+  const ordered = useMemo(() => CATEGORIES.flatMap((c) => inCategory(c.has, c.id)), []);
   const knownList = ordered.filter((b) => known.has(b.id));
   const current = knownList.find((b) => b.id === selected) ?? knownList.find((b) => b.id === "uranus") ?? knownList[0] ?? null;
 
@@ -90,10 +95,10 @@ export default function Logbook() {
           </button>
         </header>
 
-        <div className="relative mx-[var(--side)] grid min-h-0 flex-1 grid-cols-1 border border-b-0 border-ember/50 lg:grid-cols-[979px_1fr] xl:grid-cols-[minmax(0,979px)_381px]">
-          <div className="dot-grid min-h-0 overflow-y-auto overscroll-contain">
+        <div className="relative mx-[var(--side)] grid min-h-0 flex-1 grid-cols-1 border border-b-0 border-ember/50 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="dot-grid min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
             {CATEGORIES.map((cat) => {
-              const items = BODIES.filter((b) => cat.kinds.includes(b.kind));
+              const items = inCategory(cat.has, cat.id);
               const got = items.filter((b) => known.has(b.id)).length;
               return (
                 <section key={cat.id} aria-label={cat.title} className="[&+section]:pt-[3px]">
@@ -104,7 +109,7 @@ export default function Logbook() {
                       {got} / {cat.slots}
                     </span>
                   </h2>
-                  <ul className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-9">
+                  <ul className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-9 2xl:grid-cols-11">
                     {Array.from({ length: cat.slots }, (_, i) => {
                       const b = items[i];
                       const isKnown = !!b && known.has(b.id);
@@ -126,8 +131,8 @@ export default function Logbook() {
             {current ? (
               <Detail
                 body={current}
-                index={knownList.filter((b) => isVehicle(b.kind) === isVehicle(current.kind)).indexOf(current) + 1}
-                of={knownList.filter((b) => isVehicle(b.kind) === isVehicle(current.kind)).length}
+                index={knownList.filter((b) => shelf(b) === shelf(current)).indexOf(current) + 1}
+                of={knownList.filter((b) => shelf(b) === shelf(current)).length}
                 reached={reached.includes(current.id)}
                 onStep={step}
                 onClose={() => setSheet(false)}
@@ -205,7 +210,7 @@ function Detail({ body, index, of, reached, onStep, onClose }: { body: BodyDef; 
     <div className="px-[9px] pb-[24px] pt-[15px] md:px-[13px]" key={body.id}>
       <div className="flex items-center justify-between">
         <span className="badge inline-block">
-          {isVehicle(body.kind) ? "VEHICLE" : "WORLD"} {String(index).padStart(2, "0")} / {of}
+          {shelf(body)} {String(index).padStart(2, "0")} / {of}
         </span>
         <div className="flex gap-[6px]">
           <button type="button" onClick={onClose} className="rec-chip h-[24px] border border-gold/60 px-2 font-hud text-[11px] text-gold lg:hidden">
@@ -220,7 +225,7 @@ function Detail({ body, index, of, reached, onStep, onClose }: { body: BodyDef; 
         </div>
       </div>
 
-      <div className="relative mt-[12px] h-[245px]">
+      <div className="relative mt-[12px] h-[245px] xl:h-[300px]">
         <span className="absolute left-0 top-0 h-[10px] w-[10px] border-l border-t border-gold/70" />
         <span className="absolute right-0 top-0 h-[10px] w-[10px] border-r border-t border-gold/70" />
         <span className="absolute bottom-0 left-0 h-[10px] w-[10px] border-b border-l border-gold/70" />

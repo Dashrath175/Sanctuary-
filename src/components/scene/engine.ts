@@ -5,12 +5,14 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { AU_KM, BODIES, byId, eclipticDirection, ephemeris, type BodyDef, type Vec } from "@/lib/solar";
-import { attachMap, buildBody, exposureFor, glowSprite, sunGlare, sunGlareAt, type SunParts } from "./surface";
+import { attachMap, hasMap, buildBody, exposureFor, glowSprite, sunGlare, sunGlareAt, type SunParts } from "./surface";
 import { GLOW_LAYER, craftModel, lightCraft, orientCraft, prefetchCraft, type CraftModel } from "./craft";
 import { Sky, toScene, type SkyStar } from "./sky";
 import { Dust } from "./dust";
+import { cutShots, easeCut, type CutName, type CutOptions, type Look, type OrbitPoint, type Shot, type ShipPoint } from "./cutscene";
 import { CraftGlow, TravelOptics, grainShader, lensShader, travelShader } from "./post";
 import { MAX_SPEED, shortKm } from "@/lib/units";
+import { RECORDS_KEY } from "@/lib/journey";
 
 // Scene units: 1 = 1000 km. The camera always sits at the origin; every body is placed
 // relative to it each frame, so heliocentric distances of billions of km stay precise.
@@ -23,6 +25,18 @@ const SKY_UNITS = 150_000;
 const PLANET_RANGE_KM = 5e7; // planets resolve within 50 million km
 const RESOLVE_DEG = 0.15; // moons and asteroids resolve once they look this big
 const CRAFT_RANGE_KM = 2e5;
+const CRAFT_ID_KM = 50_000;
+/** a story site is only identified alongside it (holding beside it, or this close) */
+const SITE_ID_KM = 1;
+/** ...but a scan shows where one is (unnamed) from this far: about 3 AU */
+const SITE_SIGHT_KM = 4.5e8;
+const TUMBLE = new THREE.Quaternion();
+/** our own ship (only seen in cutscenes): 28 m nose to tail */
+const VESSEL = { id: "vessel" } as BodyDef;
+const VESSEL_RADIUS_KM = 0.014;
+/** a cutscene's narrower, filmic field of view */
+const CUT_FOV = 40;
+const TUMBLE_AXIS = new THREE.Vector3(0.35, 1, 0.2).normalize();
 const LOOK_RATE = 1.2; // rad/s with keys
 const LOOK_EASE = 12;
 const BRAKE_S = 0.6;
@@ -45,9 +59,18 @@ const SCAN_STAR = "#39d6c8";
 // scan noise lingers a little after a scan completes, then fades
 const NET_HOLD_S = SCAN_S + 1.2;
 const NET_FADE_S = 1.6;
-// flying within 10,000 km of a vehicle closes in on it; leaving disarms everything within 15,000
-const CRAFT_CAPTURE_KM = 10_000;
-const CRAFT_DISARM_KM = 15_000;
+// a vehicle takes the view only when we are plainly heading for it: within this distance,
+// closing on it, and pointed at it (not at a world behind it)
+const CRAFT_CAPTURE_KM = 50_000;
+const CRAFT_AIM_RAD = (6 * Math.PI) / 180;
+/** near a world, how close to the crosshair a vehicle must be to win over the world */
+const CRAFT_LOCK_RAD = (1.5 * Math.PI) / 180;
+const CRAFT_CLOSING_KM_S = 100;
+// leaving one quiets every vehicle this close until we are this far from it again
+const CRAFT_DISARM_KM = 60_000;
+const CRAFT_REARM_KM = 120_000;
+/** how far the opening leans in on the Sun (field of view, degrees) */
+const SUN_ZOOM_FOV = 16;
 // S slows to a stop; held at rest for 0.3 s it engages reverse, up to 10,000 km/s
 const REST_KM_S = 0.001;
 const REVERSE_DELAY_S = 0.3;
@@ -72,6 +95,9 @@ const BELT_HALF_AU = 0.45;
 const BELT_APPROACH_AU = 0.3;
 const BELT_RAMP_AU = 0.1;
 const BELT_SPEED = 0.6;
+/** the belt leaves the picture (and its static) alone below this speed, km/s, and comes in
+ * fully over the next 5,000 km/s */
+const BELT_CALM_KM_S = 10_000;
 /** fastest the belt limit itself may move, km/s per second, so the speed never jerks */
 const BELT_EASE = 30_000;
 /** stable 0..1 hash of a string */
@@ -117,7 +143,13 @@ export type Telemetry = {
   approach: { phase: string; detail: string; urgent: boolean } | null;
   hold: string | null;
   scanStage: "local" | "deep";
+  /** distance from the Sun, AU */
+  sunAU: number;
+  /** 0..1 sensor interference (the asteroid belt, story bursts) */
+  interference: number;
 };
+/** where we are, relative to the nearest body, for the save file */
+export type Pose = { body: string; offset: [number, number, number]; yaw: number; pitch: number };
 export type ScanResult = {
   stage: "local" | "deep";
   primary: string | null;
@@ -149,6 +181,35 @@ export type Trace = {
   stars: { x: number; y: number; name: string; box: number; alpha: number; settle: number }[];
   lines: [number, number, number, number, number][];
   patterns: { x: number; y: number; name: string; alpha: number }[];
+};
+
+/** a cutscene in progress: our ship (km) and its frame, the shot, the cockpit look to return to */
+type CutState = {
+  name: CutName;
+  opts: CutOptions;
+  /** a mission: when the shots run out, a fresh set follows, until endCut() */
+  loop: boolean;
+  shots: Shot[];
+  i: number;
+  t: number;
+  anchor: THREE.Vector3;
+  nose: THREE.Vector3;
+  up: THREE.Vector3;
+  /** the model's x axis (up × nose) */
+  x: THREE.Vector3;
+  /** toward the sunlit side, where the camera works */
+  side: THREE.Vector3;
+  target: string | null;
+  look: [number, number];
+  done: () => void;
+  /** the lens (degrees) and horizon tilt (radians) of the shot right now */
+  fov: number;
+  roll: number;
+  /** where a transfer set off from, relative to the body it left */
+  startOff?: THREE.Vector3;
+  /** a transfer's apparent motion, for the travel optics only (our ship itself stays at rest, so
+   * the drive stays silent) */
+  warp: THREE.Vector3;
 };
 
 type Live = {
@@ -231,9 +292,7 @@ type Observation = { travel: number; pos: THREE.Vector3; dir: THREE.Vector3 };
 type Tween = { from: number[]; to: number[]; t: number; dur: number; apply: (v: number[]) => void; done?: () => void };
 
 const KIND_STATUS: Record<BodyDef["kind"], string> = { star: "STAR", planet: "PLANET", moon: "MOON", dwarf: "DWARF PLANET", asteroid: "ASTEROID", spacecraft: "SPACECRAFT", satellite: "SATELLITE" };
-const STORE_KEY = "sanctuary.records.v2";
-/** records saved before the rename, carried over once */
-const OLD_STORE_KEY = "waypoint.records.v2";
+const STORE_KEY = RECORDS_KEY;
 const isCraft = (d: BodyDef) => d.kind === "spacecraft" || d.kind === "satellite";
 
 /** Direction from a vehicle to the camera for a view `yaw` and `pitch` in its holding frame. */
@@ -312,6 +371,7 @@ export class SpaceEngine {
   private glare = sunGlare();
   /** planet exposure shared by every survey surface, adapted to the nearest world */
   private exposure = { value: 1 };
+  private marsFlux = 0.43;
   /** the world (or craft) we are carried along with */
   private host: Live | null = null;
   private optics = new TravelOptics(THRESHOLD, MAX_SPEED);
@@ -343,6 +403,21 @@ export class SpaceEngine {
   private restHeld = 0;
   private roll = 0;
   private view: CraftView | null = null;
+  private cut: CutState | null = null;
+  /** a hard stop: the ship lurches; `k` (0..1) follows the speed we stopped from */
+  private joltState: { k: number; t: number; dur: number; seed: number } | null = null;
+  /** a story zoom (field of view, degrees), eased in and out; null when none */
+  private zoomFov: number | null = null;
+  /** the visor's panels switching on (first person after a cutscene): seconds in, and how long */
+  private bootT = -1;
+  private bootDur = 1;
+  private tileSeedAt = 0;
+  /** a world the story keeps us away from, with its own hold altitude to put back */
+  private heldOff: { l: Live; hold: number } | null = null;
+  /** our own ship, only seen in cutscenes */
+  private vessel: CraftModel;
+  private vesselRoot = new THREE.Group();
+  private vesselPx = 0;
   /** vehicles we just left, so flying off doesn't close in on them again */
   private disarmed = new Set<string>();
   /** eased Sun gains (glare, disc) while a scan reads it */
@@ -352,7 +427,12 @@ export class SpaceEngine {
   private governed: { gapKm: number; limit: number; belt?: boolean } | null = null;
   /** the asteroid belt's speed limit as it eases (km/s) */
   private beltLimit = MAX_SPEED;
-  private beltSaid = false;
+  /** inside the belt (with hysteresis), how deep (0..1), and the interference shown */
+  private inBelt = false;
+  private beltLevel = 0;
+  private interference = 0;
+  private burst: { k: number; t: number; dur: number } | null = null;
+  private seedAt = 0;
   private holding: { id: string; alt: number } | null = null;
   private pilot: Pilot | null = null;
   private selected: string | null = null;
@@ -396,10 +476,15 @@ export class SpaceEngine {
   onReached: ((b: BodyDef) => void) | null = null;
   onTravelEnd: ((reason: "arrived" | "cancelled") => void) | null = null;
   onHold: ((text: string) => void) | null = null;
-  /** the drive starts easing off for the asteroid belt (once a visit) */
-  onBelt: (() => void) | null = null;
+  /** we cross into (true) or out of (false) the asteroid belt, every time */
+  onBelt: ((inside: boolean) => void) | null = null;
   /** after each rendered frame, so screen-space overlays stay in step with the view */
   onFrame: (() => void) | null = null;
+  /** a cutscene moved to shot `n` (0 when it starts), or ended (-1) */
+  /** a cutscene moved to a shot (-1: it ended); `seamless` shots carry on without a dip to black */
+  onCut: ((shot: number, seamless?: boolean) => void) | null = null;
+  /** X stopped us hard: how hard (0..1, from the speed) and from what speed (km/s) */
+  onJolt: ((k: number, speed: number) => void) | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -418,6 +503,10 @@ export class SpaceEngine {
 
     this.sky = new Sky(SKY_UNITS, opts.mobile, this.renderer.getPixelRatio());
     this.scene.add(this.sky.group, this.dust.mesh, this.glare);
+    this.vessel = craftModel(VESSEL, UNIT, this.exposure);
+    this.vesselRoot.add(this.vessel.group);
+    this.vesselRoot.visible = false;
+    this.scene.add(this.vesselRoot);
     this.sky.load();
 
     ephemeris(Date.now(), this.eph);
@@ -482,7 +571,7 @@ export class SpaceEngine {
   private ensureMesh(l: Live) {
     if (l.group) return;
     if (isCraft(l.def)) {
-      l.craft = craftModel(l.def, UNIT, this.exposure);
+      l.craft = craftModel(l.def, UNIT, { value: this.exposure.value });
       l.group = l.craft.group;
     } else {
       const { group, globe, material, rings } = buildBody(l.def, UNIT, null, this.exposure);
@@ -540,7 +629,11 @@ export class SpaceEngine {
     const code = e.code;
     if (["KeyW", "KeyS", "KeyA", "KeyD", "KeyQ", "KeyE", "KeyX", "ShiftLeft", "ShiftRight", "Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(code)) {
       if (code === "Space" || code.startsWith("Arrow")) e.preventDefault();
-      if (!e.repeat && this.pilot && (code === "KeyW" || code === "KeyX" || code === "KeyS")) this.cancelAutopilot(code === "KeyW");
+      if (!e.repeat && this.pilot && (code === "KeyW" || code === "KeyX" || code === "KeyS")) {
+        // X stops the autopilot dead: the ship lurches as hard as the speed it was making
+        if (code === "KeyX" && this.pilot.phase === "fly") this.jolt(Math.min(this.pilot.speed / 100, MAX_SPEED));
+        this.cancelAutopilot(code === "KeyW");
+      }
       // thrust, S or X hands control back beside a vehicle, at rest, facing where we look
       if (!e.repeat && this.view && (code === "KeyW" || code === "KeyX" || code === "KeyS")) this.releaseView();
       else if (!e.repeat && code === "KeyX" && !this.pilot) this.beginBrake();
@@ -693,6 +786,7 @@ export class SpaceEngine {
   /** Jump straight to the survey framing (skip opening). */
   snapExplore() {
     this.tweens = [];
+    this.zoomFov = null;
     this.mode = "explore";
     this.cam.copy(this.explorePos());
     this.setLook(7, 7);
@@ -701,6 +795,44 @@ export class SpaceEngine {
 
   setExplore() {
     this.mode = "explore";
+  }
+
+  /** The opening's last beat: the view swings onto the Sun, the brightest star, and leans in on it. */
+  lookToSun(ms: number) {
+    const sun = this.live.get("sun")!;
+    const [y, p] = this.anglesTo(sun.pos.clone().sub(this.cam));
+    this.tween([this.yaw, this.pitch], [this.wrapTo(y, this.yaw), p], ms, ([a, b]) => {
+      this.yaw = this.yawT = a;
+      this.pitch = this.pitchT = b;
+    }, () => (this.baseLook = [this.yaw, this.pitch]));
+    this.tween([this.zoomFov ?? this.fovDeg], [SUN_ZOOM_FOV], ms * 1.5, ([f]) => (this.zoomFov = f));
+  }
+
+  /** Ease a story zoom back out to the normal field of view. */
+  endZoom(ms = 1500) {
+    if (this.zoomFov === null) return;
+    this.tween([this.zoomFov], [this.fovDeg], ms, ([f]) => (this.zoomFov = f), () => (this.zoomFov = null));
+  }
+
+  /** The visor coming on: its panels flicker in one by one over `seconds`. */
+  bootGlitch(seconds = 1.5) {
+    this.bootT = 0;
+    this.bootDur = seconds;
+  }
+
+  /**
+   * Keep us `km` from a world's centre for now (the story's Earth approach): the approach assist
+   * eases us to a stop there from any speed or angle. Null puts its usual hold back.
+   */
+  holdOff(id: string | null, km = 0) {
+    if (this.heldOff) {
+      this.heldOff.l.holdAlt = this.heldOff.hold;
+      this.heldOff = null;
+    }
+    const l = id ? this.live.get(id) : null;
+    if (!l) return;
+    this.heldOff = { l, hold: l.holdAlt };
+    l.holdAlt = Math.max(l.holdAlt, km - l.outer);
   }
 
   // ---------- public: selection & autopilot ----------
@@ -768,8 +900,8 @@ export class SpaceEngine {
     if (!l) return false;
     const standoff = this.standoff(l);
     if (l.dist < standoff * 1.15) return false;
-    // the solar map names every world it shows
-    if (fromMap && this.records.get(id) !== "scanned") {
+    // the solar map names every world it shows (a story site keeps its secret until we are there)
+    if (fromMap && this.records.get(id) !== "scanned" && !this.closeOnly.has(id)) {
       if (!this.numbers.has(id)) this.numbers.set(id, ++this.contactCount);
       this.records.set(id, "scanned");
       this.saveRecords();
@@ -876,9 +1008,23 @@ export class SpaceEngine {
   private visibleFor(l: Live) {
     const k = l.def.kind;
     if (k === "star") return true;
-    if (isCraft(l.def)) return l.dist <= CRAFT_RANGE_KM;
+    if (isCraft(l.def)) return l.dist <= (this.farSight.get(l.def.id) ?? (this.closeOnly.has(l.def.id) ? SITE_SIGHT_KM : CRAFT_RANGE_KM));
     if (k === "planet") return l.dist <= PLANET_RANGE_KM;
     return 2 * Math.asin(Math.min(1, l.def.radiusKm / Math.max(l.def.radiusKm, l.dist))) >= (RESOLVE_DEG * Math.PI) / 180;
+  }
+
+  /**
+   * Close enough for a scan to say what something is: a planet within ~110 of its radii
+   * (Earth: ~700,000 km), a moon or small world within ~140 radii (at least 25,000 km), a
+   * vehicle within 50,000 km. Farther off it stays an unidentified object.
+   */
+  private identifiable(l: Live) {
+    if (l.def.kind === "star") return true;
+    // the body the story is looking for is named only once we are close to it
+    if (this.scanOnly === l.def.id && this.scanOnlyKm > 0) return l.dist <= this.scanOnlyKm;
+    if (this.closeOnly.has(l.def.id)) return this.beside(l.def.id);
+    if (isCraft(l.def)) return l.dist <= CRAFT_ID_KM;
+    return l.dist <= Math.max(l.def.radiusKm * (l.def.kind === "planet" ? 110 : 140), 25_000);
   }
 
   /** moons of a planet we can resolve show up with it */
@@ -902,13 +1048,15 @@ export class SpaceEngine {
   private nextStage(fwd = this.forward()): "local" | "deep" {
     const o = this.lastScan;
     if (!o) return "local";
+    // holding beside a vehicle we have not named yet: the scan is about it, not the stars
+    if (this.view && this.records.get(this.view.l.def.id) !== "scanned") return "local";
     return o.pos.distanceTo(this.cam) > DEEP_KM || o.dir.angleTo(fwd) > DEEP_RAD ? "local" : "deep";
   }
 
   /** What a scan would find right now; `commitScan` writes it to the records. */
   scan(): ScanResult {
     const fwd = this.forward();
-    if (this.nextStage(fwd) === "deep") {
+    if (!this.scanOnly && this.nextStage(fwd) === "deep") {
       const half = (Math.max(this.camera.fov, this.camera.fov * this.camera.aspect) * Math.PI) / 360;
       const stars = this.sky.named
         .filter((s) => s.dir.angleTo(fwd) < half * 1.05)
@@ -923,10 +1071,16 @@ export class SpaceEngine {
     const tanHalf = Math.tan((this.camera.fov * Math.PI) / 360);
     for (const l of this.bodies) {
       if (l.def.kind === "star") continue;
+      if (this.scanOnly && l.def.id !== this.scanOnly) continue;
       if (!this.visibleFor(l) && !this.isResidentOfVisible(l) && !(l.def.kind === "planet")) continue;
       const angle = l.rel.angleTo(fwd);
-      if (angle > Math.PI / 2) continue;
       const radius = Math.asin(Math.min(1, l.def.radiusKm / Math.max(l.dist, 1)));
+      // the signal source shows up wherever we are looking, once we are within its reach
+      if (this.farSight.has(l.def.id)) {
+        cands.push({ l, angle, radius, error: angle });
+        continue;
+      }
+      if (angle > Math.PI / 2) continue;
       v.copy(l.rel).divideScalar(UNIT).project(this.camera);
       const pad = Math.tan(radius) / tanHalf;
       if (Math.abs(v.x) < 1 + pad / this.camera.aspect && Math.abs(v.y) < 1 + pad) cands.push({ l, angle, radius, error: Math.max(0, angle - radius) });
@@ -940,7 +1094,7 @@ export class SpaceEngine {
       null;
     const contacts = cands.map(({ l }) => {
       const prev = this.records.get(l.def.id);
-      const status: RecordStatus = this.visibleFor(l) || prev === "scanned" ? "scanned" : "sighted";
+      const status: RecordStatus = this.identifiable(l) || prev === "scanned" ? "scanned" : "sighted";
       return { id: l.def.id, status, fresh: prev !== status };
     });
     // the Sun answers too, once its disc is big enough to read
@@ -948,9 +1102,10 @@ export class SpaceEngine {
     v.copy(sun.rel).divideScalar(UNIT).project(this.camera);
     const sunSize = 2 * Math.asin(Math.min(1, sun.def.radiusKm / Math.max(sun.dist, 1)));
     const sunSeen = sun.rel.dot(fwd) > 0 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05 && sunSize >= (RESOLVE_DEG * Math.PI) / 180;
-    if (sunSeen) contacts.push({ id: "sun", status: "scanned", fresh: this.records.get("sun") !== "scanned" });
+    if (sunSeen && !this.scanOnly) contacts.push({ id: "sun", status: "scanned", fresh: this.records.get("sun") !== "scanned" });
     // looking straight at the Sun, it is what the scan is about
     const sunCentred = sunSeen && Math.max(0, sun.rel.angleTo(fwd) - sunSize / 2) < two;
+    if (this.scanOnly) return { stage: "local", primary: primary?.def.id ?? null, contacts, stars: [] };
     return { stage: "local", primary: sunCentred ? "sun" : (primary?.def.id ?? (sunSeen ? "sun" : null)), contacts, stars: [] };
   }
 
@@ -982,6 +1137,9 @@ export class SpaceEngine {
       if (prev === "scanned") continue;
       if (!this.numbers.has(c.id)) this.numbers.set(c.id, ++this.contactCount);
       this.records.set(c.id, c.status);
+      // identified while holding beside it: that is a visit
+      const l = this.live.get(c.id);
+      if (c.status === "scanned" && l && this.view?.l === l) this.markReached(l);
     }
     for (const s of result.stars) this.skyRecords.add(s);
     this.saveRecords();
@@ -1037,6 +1195,8 @@ export class SpaceEngine {
 
   private markReached(l: Live) {
     const id = l.def.id;
+    // only a scan identifies a body; arriving at something unknown does not
+    if (this.records.get(id) !== "scanned" && !this.reached.has(id)) return;
     if (!this.numbers.has(id)) this.numbers.set(id, ++this.contactCount);
     this.records.set(id, "scanned");
     if (!this.reached.has(id)) {
@@ -1060,13 +1220,8 @@ export class SpaceEngine {
 
   private restoreRecords() {
     try {
-      let raw = window.localStorage.getItem(STORE_KEY);
-      if (!raw) {
-        raw = window.localStorage.getItem(OLD_STORE_KEY);
-        if (!raw) return;
-        window.localStorage.setItem(STORE_KEY, raw);
-        window.localStorage.removeItem(OLD_STORE_KEY);
-      }
+      const raw = window.localStorage.getItem(STORE_KEY);
+      if (!raw) return;
       const s = JSON.parse(raw) as { records?: [string, RecordStatus][]; numbers?: [string, number][]; count?: number; stars?: string[]; reached?: string[] };
       for (const [id, st] of s.records ?? []) if (byId.has(id) && (st === "sighted" || st === "scanned")) this.records.set(id, st);
       for (const [id, n] of s.numbers ?? []) if (byId.has(id) && Number.isFinite(n)) this.numbers.set(id, n);
@@ -1082,8 +1237,34 @@ export class SpaceEngine {
 
   private beginBrake() {
     if (this.vel.lengthSq() < 1e-6) return;
+    this.jolt(this.vel.length());
     this.brake = { from: this.vel.clone(), t: 0 };
     this.optics.beginBrake(this.vel.length());
+  }
+
+  /** The ship shakes (0..1) from outside, with no stop behind it: the panels and the view go with it. */
+  quake(k: number) {
+    this.joltState = { k: THREE.MathUtils.clamp(k, 0, 1), t: 0, dur: 0.45 + 1.15 * k, seed: Math.random() * 100 };
+  }
+
+  /** Put a body on the contacts list, unnamed, as if the sensors had just picked it up. */
+  sight(id: string) {
+    if (!this.live.has(id) || this.records.has(id)) return;
+    this.records.set(id, "sighted");
+    if (!this.numbers.has(id)) this.numbers.set(id, ++this.contactCount);
+    this.saveRecords();
+    this.onRecordsChange?.(this.identifiedIds(), [...this.reached]);
+  }
+
+  /**
+   * A hard stop jolts the ship as hard as the speed it stopped from: nothing below ~3,000 km/s,
+   * a nudge at 50,000, violent at full drive (200,000 km/s).
+   */
+  private jolt(speed: number) {
+    const k = THREE.MathUtils.clamp((speed - 3000) / (MAX_SPEED - 3000), 0, 1);
+    if (k <= 0) return;
+    this.joltState = { k, t: 0, dur: 0.45 + 1.15 * k, seed: Math.random() * 100 };
+    this.onJolt?.(k, speed);
   }
 
   private fly(dt: number) {
@@ -1154,28 +1335,26 @@ export class SpaceEngine {
 
     // the asteroid belt: the limit eases down through it and back up after, and the speed
     // follows it (it only ever caps; thrust still brings the speed back)
-    const beltCap = this.brake ? MAX_SPEED : MAX_SPEED * (1 - (1 - BELT_SPEED) * this.beltDepth());
-    this.beltLimit += THREE.MathUtils.clamp(beltCap - this.beltLimit, -BELT_EASE * dt, BELT_EASE * dt);
+    this.easeBelt(dt, !!this.brake);
     let beltHeld = false;
     if (this.beltLimit < MAX_SPEED - 1 && this.vel.length() > this.beltLimit) {
       this.vel.setLength(this.beltLimit);
       beltHeld = true;
       text = "ASSIST";
-      if (!this.beltSaid) {
-        this.beltSaid = true;
-        this.onBelt?.();
-      }
     }
 
     // approach assist: ease the effective speed near any surface, hold just above it
     let speed = this.vel.length();
     this.timeScale = timeScaleFor(speed);
     this.governed = beltHeld ? { gapKm: 0, limit: this.beltLimit, belt: true } : null;
-    let nearest: Live | null = null, gap = Infinity;
+    // the world with the least room left before its hold altitude (one the story keeps us away
+    // from can be farther than a moon closer to us)
+    let nearest: Live | null = null, gap = Infinity, room = Infinity;
     for (const l of this.bodies) {
       if (!l.holdAlt) continue;
       const g = l.dist - l.outer;
-      if (g < gap) {
+      if (g - l.holdAlt < room) {
+        room = g - l.holdAlt;
         gap = g;
         nearest = l;
       }
@@ -1195,6 +1374,27 @@ export class SpaceEngine {
         speed = lo;
         this.timeScale = timeScaleFor(lo);
         this.governed = { gapKm: gap, limit: lo };
+        text = "ASSIST";
+      }
+    }
+    // closing on the vehicle we picked: ease off so we come into reach of it instead of flying
+    // straight past (at full drive one frame covers far more than the 50,000 km reach)
+    const picked = this.selected ? this.live.get(this.selected) : undefined;
+    if (picked && isCraft(picked.def) && !this.disarmed.has(picked.def.id) && speed > 0.01) {
+      const rel = picked.pos.clone().sub(this.cam);
+      const d = rel.length();
+      const allowed = Math.max(60, d - CRAFT_CAPTURE_KM * 0.5);
+      if (rel.dot(this.vel) > d * speed * 0.3 && speed * this.timeScale > allowed) {
+        let lo = 0, hi = speed;
+        for (let i = 0; i < 30; i++) {
+          const m = (lo + hi) / 2;
+          if (m * timeScaleFor(m) > allowed) hi = m;
+          else lo = m;
+        }
+        this.vel.setLength(lo);
+        speed = lo;
+        this.timeScale = timeScaleFor(lo);
+        this.governed = { gapKm: d, limit: lo };
         text = "ASSIST";
       }
     }
@@ -1225,6 +1425,26 @@ export class SpaceEngine {
     }
   }
 
+  /** Ease the belt's limit toward where we are now (any flight mode) and report crossings. */
+  private easeBelt(dt: number, free = false) {
+    const depth = this.beltDepth();
+    const cap = free ? MAX_SPEED : MAX_SPEED * (1 - (1 - BELT_SPEED) * depth);
+    this.beltLimit += THREE.MathUtils.clamp(cap - this.beltLimit, -BELT_EASE * dt, BELT_EASE * dt);
+    this.beltLevel = depth;
+    if (!this.inBelt && depth > 0.75) {
+      this.inBelt = true;
+      this.onBelt?.(true);
+    } else if (this.inBelt && depth < 0.25) {
+      this.inBelt = false;
+      this.onBelt?.(false);
+    }
+  }
+
+  /** A short burst of sensor interference on top of whatever the belt is doing. */
+  flicker(k = 1, seconds = 0.8) {
+    this.burst = { k, t: 0, dur: seconds };
+  }
+
   /** 0..1: how deep we are in the asteroid belt's slow zone (0 well clear of it) */
   private beltDepth() {
     const e = toEcliptic(this.cam.clone().sub(this.live.get("sun")!.pos));
@@ -1237,6 +1457,7 @@ export class SpaceEngine {
     const p = this.pilot!;
     const l = this.live.get(p.id)!;
     p.t += dt;
+    this.governed = null;
     if (p.phase === "turn") {
       const [ty, tp] = this.anglesTo(p.points[0].clone().sub(this.cam));
       const k = ease(Math.min(1, p.t / p.turnDur));
@@ -1256,7 +1477,11 @@ export class SpaceEngine {
         remaining += prev.distanceTo(q);
         prev = q;
       }
-      p.speed = Math.min(p.max, p.speed + p.accel * dt, Math.sqrt(2 * p.accel * remaining) + 50);
+      // the belt holds the drive down here as well (the autopilot runs at ×100 compression)
+      this.easeBelt(dt);
+      p.speed = Math.min(p.max, p.speed + p.accel * dt, Math.sqrt(2 * p.accel * remaining) + 50, this.beltLimit * 100);
+      const beltHeld = this.beltLimit < MAX_SPEED - 1 && p.speed >= this.beltLimit * 100 - 1;
+      this.governed = beltHeld ? { gapKm: 0, limit: this.beltLimit, belt: true } : null;
       let step = p.speed * dt;
       while (step > 0 && p.points.length) {
         const q = p.points[0];
@@ -1288,6 +1513,7 @@ export class SpaceEngine {
         this.vel.set(0, 0, 0);
         this.timeScale = 1;
         this.onTravelEnd?.("arrived");
+        this.beginView(l, this.cam.clone());
         return;
       }
       if (!p.points.length) {
@@ -1360,36 +1586,72 @@ export class SpaceEngine {
     return best;
   }
 
-  /** Did this frame's path enter a vehicle's 10,000 km? Each draws us in once (or as our target). */
-  private checkCapture(start: THREE.Vector3) {
+  /**
+   * A vehicle takes the view when we are plainly heading for it: within 50,000 km, closing on it,
+   * and pointed at it (within ~6° of the centre of view, or it is the selected target). Passing
+   * by never pulls us in, and nor does flying at its planet: with a world close around the centre
+   * of view, the vehicle has to sit right under the crosshair, clearly nearer it than the world's
+   * centre, and in front of the world rather than behind it.
+   * One we have just left stays quiet until we have been well away from it.
+   */
+  private checkCapture(before: THREE.Vector3) {
     if (this.mode !== "explore") return;
-    const seg = this.cam.clone().sub(start);
-    const a = seg.lengthSq();
-    let hit: { l: Live; t: number } | null = null;
+    const fwd = this.forward();
+    const speed = this.vel.length();
+    const path = this.cam.clone().sub(before);
+    const flown = path.length();
+    let best: { l: Live; ang: number; at: THREE.Vector3 } | null = null;
     for (const l of this.bodies) {
       if (!isCraft(l.def)) continue;
       const id = l.def.id;
       if (this.disarmed.has(id)) {
-        if (l.pos.distanceTo(this.cam) > CRAFT_DISARM_KM * 2) this.disarmed.delete(id);
+        if (l.pos.distanceTo(this.cam) > CRAFT_REARM_KM) this.disarmed.delete(id);
         continue;
       }
-      if (this.reached.has(id) && this.selected !== id) continue;
-      const m = start.clone().sub(l.pos);
-      const b = m.dot(seg), c = m.lengthSq() - CRAFT_CAPTURE_KM ** 2;
-      let t: number | null = null;
-      if (c <= 0) t = 0;
-      else if (a > 0 && b * b - a * c >= 0) {
-        const r = (-b - Math.sqrt(b * b - a * c)) / a;
-        if (r >= 0 && r <= 1) t = r;
-      }
-      if (t !== null && (!hit || t < hit.t || (t === hit.t && id === this.selected))) hit = { l, t };
+      // the nearest point of this frame's path: a fast frame can jump right over the reach
+      const rel = l.pos.clone().sub(before);
+      const along = flown > 1e-9 ? THREE.MathUtils.clamp(rel.dot(path) / (flown * flown), 0, 1) : 1;
+      const at = before.clone().addScaledVector(path, along);
+      if (at.distanceTo(l.pos) > CRAFT_CAPTURE_KM) continue;
+      // aimed and closing are judged from where this frame began
+      rel.normalize();
+      const ang = Math.acos(THREE.MathUtils.clamp(rel.dot(fwd), -1, 1));
+      const aimed = ang < CRAFT_AIM_RAD || this.selected === id;
+      const closing = speed > CRAFT_CLOSING_KM_S && this.vel.dot(rel) > speed * 0.5;
+      // the vehicle we picked always takes the view once we are within reach, moving or not
+      if ((this.selected === id || (aimed && closing)) && (!best || ang < best.ang)) best = { l, ang, at };
     }
-    if (hit) this.beginView(hit.l, start.clone().addScaledVector(seg, hit.t));
+    // close in from where the path came nearest it (not from far past it)
+    if (best && (this.selected === best.l.def.id || !this.aimingAtWorld(fwd, best.l, best.ang))) this.beginView(best.l, best.at);
+  }
+
+  /** Are we pointed at a world rather than at this vehicle (`ang`: its angle off the centre of view)? */
+  private aimingAtWorld(fwd: THREE.Vector3, craft: Live, ang: number) {
+    const toCraft = craft.pos.clone().sub(this.cam);
+    const craftDist = toCraft.length();
+    toCraft.divideScalar(Math.max(craftDist, 1e-9));
+    for (const l of this.bodies) {
+      if (isCraft(l.def) || l.def.kind === "star") continue;
+      const rel = l.pos.clone().sub(this.cam);
+      const d = rel.length();
+      // a world well beyond the vehicle is only its backdrop
+      if (d - l.outer > craftDist * 1.5) continue;
+      rel.divideScalar(Math.max(d, 1e-9));
+      const disc = Math.asin(Math.min(1, l.outer / Math.max(d, 1e-9)));
+      const toWorld = Math.acos(THREE.MathUtils.clamp(rel.dot(fwd), -1, 1));
+      if (toWorld > disc + CRAFT_AIM_RAD) continue;
+      // the vehicle is behind the world, or we are not dead on it: we want the world
+      const hidden = craftDist > d && Math.acos(THREE.MathUtils.clamp(rel.dot(toCraft), -1, 1)) < disc;
+      if (hidden || ang > CRAFT_LOCK_RAD || ang > toWorld * 0.6) return true;
+    }
+    return false;
   }
 
   private beginView(l: Live, entry: THREE.Vector3) {
     this.cam.copy(entry);
     this.vel.set(0, 0, 0);
+    this.thrustText = "IDLE";
+    this.thrustLevel = 0;
     this.brake = null;
     this.gear = 1;
     this.restHeld = 0;
@@ -1430,6 +1692,169 @@ export class SpaceEngine {
       pitch: f.pitch,
       sweep: { ...f.sweep, phase: 0 },
     };
+  }
+
+  /** The cutscene camera: eased from the shot's first point to its last, looking where it says. */
+  private cutView(dt: number) {
+    const c = this.cut!;
+    const shot = c.shots[c.i];
+    c.t = Math.min(c.t + dt, shot.dur);
+    const k = easeCut(c.t / shot.dur);
+    let warp: THREE.Vector3 | null = null;
+    if (shot.orbit) {
+      this.cam.copy(this.orbitPoint(shot.orbit.body, shot.orbit.from.map((f, i) => f + (shot.orbit!.to[i] - f) * k) as OrbitPoint));
+      // a cut across the Solar System is not a flight: nothing streaks
+      this.lastCam.copy(this.cam);
+    } else if (shot.transfer) {
+      // from one body to the next in two halves: first away from the body we leave, its distance
+      // growing steadily (in log space) so it shrinks behind us without a jump; then in on the
+      // next, its distance shrinking the same way so it grows instead of popping up at the end
+      const tr = shot.transfer;
+      const dest = this.live.get(tr.to.body)?.pos ?? this.cam;
+      const left = this.live.get(tr.from.body)?.pos ?? dest;
+      const a = c.startOff ? left.clone().add(c.startOff) : this.orbitPoint(tr.from.body, tr.from.at);
+      const end = this.orbitPoint(tr.to.body, tr.to.at);
+      const gap = Math.max(a.distanceTo(dest), 1e-6), half = gap / 2;
+      const near = Math.max(end.distanceTo(dest), 1e-6);
+      if (k < 0.5) {
+        const q = k / 0.5;
+        const r0 = Math.max(a.distanceTo(left), 1e-6);
+        // far from the body we leave: grow its distance in log space; a short hop just glides
+        const out = half > r0 * 4 ? Math.exp(Math.log(r0) + (Math.log(r0 + half) - Math.log(r0)) * q) - r0 : half * q;
+        this.cam.copy(a).addScaledVector(dest.clone().sub(a).normalize(), out);
+      } else {
+        const q = (k - 0.5) / 0.5;
+        const dir = a.clone().sub(dest).normalize().lerp(end.clone().sub(dest).normalize(), q).normalize();
+        this.cam.copy(dest).addScaledVector(dir, Math.exp(Math.log(half) + (Math.log(near) - Math.log(half)) * q));
+      }
+      this.lastCam.copy(this.cam);
+      // the drive's travel optics run with it (they follow the speed), full at the middle, so the
+      // flight reads as one even where there is nothing but stars to see
+      warp = dest.clone().sub(this.cam).normalize().multiplyScalar(MAX_SPEED * Math.sin(Math.PI * Math.min(1, c.t / shot.dur)) ** 0.7);
+    } else this.cam.copy(this.shipPoint(c, shot.from.map((f, i) => f + (shot.to[i] - f) * k) as ShipPoint));
+    c.fov = shot.fov ? shot.fov[0] + (shot.fov[1] - shot.fov[0]) * k : CUT_FOV;
+    c.roll = shot.roll ? THREE.MathUtils.degToRad(shot.roll[0] + (shot.roll[1] - shot.roll[0]) * k) : 0;
+    const look = this.lookPoint(c, shot.look);
+    // a transfer watches the body it leaves fall away, then swings round to where it is going
+    if (shot.lookTo) look.lerp(this.lookPoint(c, shot.lookTo), shot.transfer ? easeCut((k - 0.3) / 0.4) : k);
+    const [y, p] = this.anglesTo(look.sub(this.cam));
+    this.yaw = this.yawT = this.wrapTo(y, this.yaw);
+    this.pitch = this.pitchT = p;
+    // a camera move, not a turn of the head: no motion blur in the sky
+    this.lastLook = [this.yaw, this.pitch];
+    c.warp.copy(warp ?? new THREE.Vector3());
+    this.vel.set(0, 0, 0);
+    this.timeScale = 1;
+    if (c.t < shot.dur || shot.hold) return;
+    if (c.i + 1 >= c.shots.length && c.loop) {
+      // a mission keeps filming: a fresh set of shots, never the same one twice running
+      const last = c.shots[c.i];
+      c.shots = cutShots(c.name, { ...c.opts, sep: this.cutSep(c) });
+      if (c.shots.length > 1 && c.shots[0].from.join() === last.from.join()) c.shots.push(c.shots.shift()!);
+      c.i = 0;
+      c.t = 0;
+      this.cutPlace(c);
+      this.onCut?.(0);
+    } else if (c.i + 1 >= c.shots.length) this.endCut();
+    else {
+      c.i++;
+      c.t = 0;
+      this.cutPlace(c);
+      this.onCut?.(c.i, !!c.shots[c.i].seamless);
+    }
+  }
+
+  /** how far a cutscene's target is from our ship, metres */
+  private cutSep(c: CutState) {
+    const other = c.target ? this.live.get(c.target) : undefined;
+    return other ? other.pos.distanceTo(c.anchor) * 1000 : 0;
+  }
+
+  /** A shot that moves our ship: high above Earth's sunlit side (a gibbous Earth), facing home. */
+  private cutPlace(c: CutState) {
+    const first = c.shots[c.i];
+    // a transfer sets off from wherever the camera is now (the shot before may have been cut short)
+    const left = first.transfer ? this.live.get(first.transfer.from.body) : undefined;
+    c.startOff = left ? this.cam.clone().sub(left.pos) : undefined;
+    c.fov = first.fov?.[0] ?? CUT_FOV;
+    this.camera.fov = c.fov;
+    this.camera.updateProjectionMatrix();
+    if (first.at !== "dayside") return;
+    // we stay there afterwards: a vehicle we were holding beside lets go
+    this.releaseView();
+    const earth = this.live.get("earth")!;
+    const sun = this.live.get("sun")!.pos;
+    const toSun = sun.clone().sub(earth.pos).normalize();
+    const across = new THREE.Vector3(0, 1, 0).cross(toSun).normalize();
+    const dir = toSun.addScaledVector(across, 0.6).normalize();
+    c.anchor.copy(earth.pos).addScaledVector(dir, earth.def.radiusKm + 14_000);
+    c.nose.copy(earth.pos).sub(c.anchor).normalize();
+    c.up.set(0, 1, 0).addScaledVector(c.nose, -c.nose.y).normalize();
+    c.x.crossVectors(c.up, c.nose).normalize();
+    c.side.copy(c.x).multiplyScalar(c.x.dot(sun.clone().sub(c.anchor)) >= 0 ? 1 : -1);
+    // back in the cockpit we look out at Earth
+    c.look = this.anglesTo(c.nose);
+  }
+
+  /** a point round a body on its sunlit side (sizes, degrees round from sunward, degrees up) in km */
+  private orbitPoint(id: string, o: OrbitPoint) {
+    const l = this.live.get(id);
+    if (!l) return this.cam.clone();
+    const sun = this.live.get("sun")!.pos;
+    const toSun = sun.clone().sub(l.pos);
+    if (toSun.lengthSq() < 1e-6) toSun.set(1, 0, 0);
+    toSun.normalize();
+    const up = new THREE.Vector3(0, 1, 0).addScaledVector(toSun, -toSun.y);
+    if (up.lengthSq() < 1e-6) up.set(0, 0, 1);
+    up.normalize();
+    const side = new THREE.Vector3().crossVectors(up, toSun).normalize();
+    const az = THREE.MathUtils.degToRad(o[1]), el = THREE.MathUtils.degToRad(o[2]);
+    const size = isCraft(l.def) ? Math.max(l.collision, l.outer, 0.004) : l.outer;
+    const dir = toSun.multiplyScalar(Math.cos(az) * Math.cos(el)).addScaledVector(side, Math.sin(az) * Math.cos(el)).addScaledVector(up, Math.sin(el));
+    return l.pos.clone().addScaledVector(dir, size * o[0]);
+  }
+
+  /** a point in our ship's frame (metres: sunlit side, up, ahead) in km */
+  private shipPoint(c: CutState, p: ShipPoint) {
+    return c.anchor.clone().addScaledVector(c.side, p[0] / 1000).addScaledVector(c.up, p[1] / 1000).addScaledVector(c.nose, p[2] / 1000);
+  }
+
+  private lookPoint(c: CutState, look: Look) {
+    if (Array.isArray(look)) return this.shipPoint(c, look);
+    if (typeof look === "string") return this.live.get(look)?.pos.clone() ?? c.anchor.clone();
+    const body = this.live.get(look.between || c.target || "");
+    return body ? c.anchor.clone().lerp(body.pos, look.k) : c.anchor.clone();
+  }
+
+  /** Our own ship sits where the cockpit is while a cutscene films it, lit like any vehicle. */
+  private placeVessel(sun: Live, pxPerRad: number) {
+    const c = this.cut;
+    this.vesselRoot.visible = !!c && this.vessel.loaded;
+    if (!c || !this.vessel.loaded) return;
+    const rel = c.anchor.clone().sub(this.cam);
+    this.vesselRoot.position.copy(rel).divideScalar(UNIT);
+    this.vesselRoot.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(c.x, c.up, c.nose));
+    const sd = sun.pos.clone().sub(c.anchor);
+    const flux = (AU_KM / Math.max(sd.length(), 1)) ** 2;
+    sd.normalize();
+    this.vesselPx = (Math.asin(Math.min(1, VESSEL_RADIUS_KM / Math.max(rel.length(), 1e-6))) || 0) * pxPerRad;
+    // the nearest world lights the hull a little from below (Uranus at the start, Earth at the end)
+    let p: Live | null = null;
+    for (const l of this.bodies) {
+      if (isCraft(l.def) || l.def.kind === "star") continue;
+      if (!p || l.pos.distanceTo(c.anchor) - l.outer < p.pos.distanceTo(c.anchor) - p.outer) p = l;
+    }
+    const toShip = p ? c.anchor.clone().sub(p.pos) : null;
+    const pd = toShip ? toShip.length() : 1;
+    lightCraft(this.vessel.look, {
+      sun: sd,
+      flux,
+      px: this.vesselPx,
+      parentDir: toShip ? toShip.clone().negate().normalize() : null,
+      parentSin: p ? Math.min(0.9999, p.outer / Math.max(pd, 1e-6)) : 0,
+      parentColour: p ? new THREE.Color(p.def.palette[1]) : null,
+      parentLit: p && toShip ? 0.5 * (1 + toShip.normalize().dot(sun.pos.clone().sub(p.pos).normalize())) : 0,
+    });
   }
 
   /** Leave the vehicle at rest, facing where we look; it won't pull us back as we fly off. */
@@ -1504,6 +1929,323 @@ export class SpaceEngine {
     this.holding = null;
   }
 
+  /** Belt static grows with speed: none below 10,000 km/s, strongest at the belt's 120,000 km/s. */
+  private updateInterference(dt: number) {
+    const shown = this.pilot ? Math.min(this.pilot.speed / 100, MAX_SPEED) : this.vel.length();
+    const pace = Math.min(1, shown / (MAX_SPEED * BELT_SPEED));
+    const belt = this.beltLevel * smooth((shown - BELT_CALM_KM_S) / 5_000);
+    let k = belt * (0.05 + 0.22 * pace * pace);
+    // irregular bursts on top, more and stronger the faster we go, so it never falls into a rhythm
+    if (!this.burst && belt > 0.05 && Math.random() < dt * belt * (0.5 + 2.6 * pace)) {
+      const long = Math.random() < 0.18;
+      this.burst = { k: (0.3 + 0.7 * Math.random()) * (0.35 + 0.65 * pace), t: 0, dur: long ? 0.35 + Math.random() * 0.6 : 0.05 + Math.random() * 0.18 };
+    }
+    if (this.burst) {
+      this.burst.t += dt;
+      const b = this.burst;
+      // a stuttering envelope: the signal catches and drops inside a burst
+      const shape = Math.sin(Math.PI * Math.min(1, b.t / b.dur));
+      k = Math.max(k, b.k * shape * (Math.random() < 0.65 ? 1 : 0.25));
+      if (b.t >= b.dur) this.burst = null;
+    }
+    if (this.time >= this.seedAt) {
+      this.grain.uniforms.uSeed.value = Math.random() * 977;
+      this.seedAt = this.time + 0.03 + Math.random() * (Math.random() < 0.3 ? 0.3 : 0.1);
+    }
+    if (this.opts.reducedMotion) k *= 0.3;
+    this.interference += (k - this.interference) * (1 - Math.exp(-dt * 8));
+    // a hard stop tears the picture (and the HUD) up for a moment, as hard as the jolt
+    const j = this.joltState;
+    if (j) {
+      const tear = j.k * (0.35 + 0.65 * j.k) * Math.pow(Math.max(0, 1 - j.t / j.dur), 1.4) * (Math.random() < 0.7 ? 1 : 0.35);
+      this.interference = Math.max(this.interference, this.opts.reducedMotion ? tear * 0.3 : tear);
+      if (tear > 0.15) this.grain.uniforms.uSeed.value = Math.random() * 977;
+    }
+    // the visor's panels: they drop out and flicker back when it boots, in a hard stop (as hard
+    // as the jolt) and in the heavier interference bursts
+    let boot = 0;
+    if (this.bootT >= 0) {
+      this.bootT += dt;
+      boot = Math.pow(Math.max(0, 1 - this.bootT / this.bootDur), 0.7);
+      if (this.bootT >= this.bootDur) this.bootT = -1;
+    }
+    // even a light stop breaks the panels up a little; a hard one tears them apart for longer
+    const joltTiles = j ? Math.min(1, 0.18 + 0.9 * Math.sqrt(j.k)) * Math.pow(Math.max(0, 1 - j.t / (j.dur * 1.35)), 0.9) : 0;
+    const burstTiles = this.burst ? this.burst.k * 0.55 * Math.sin(Math.PI * Math.min(1, this.burst.t / this.burst.dur)) : 0;
+    const tiles = Math.max(boot, joltTiles, burstTiles) * (this.opts.reducedMotion ? 0.3 : 1);
+    this.grain.uniforms.uTiles.value = tiles;
+    if (tiles > 0.01 && this.time >= this.tileSeedAt) {
+      this.grain.uniforms.uTileSeed.value = Math.random() * 977;
+      this.tileSeedAt = this.time + 0.045 + Math.random() * (Math.random() < 0.3 ? 0.2 : 0.08);
+    }
+    return this.interference;
+  }
+
+  // ---------- public: cutscenes ----------
+
+  get cutting() {
+    return this.cut !== null;
+  }
+
+  /** which cutscene is playing, if any */
+  get cutName(): CutName | null {
+    return this.cut?.name ?? null;
+  }
+
+  /**
+   * Leave the cockpit and film our own ship (the shots are in cutscene.ts); `target` is what a
+   * mission is about (Earth or a story ship). Resolves when the last shot ends, or when endCut()
+   * stops it; with `loop` (a mission) only endCut() stops it.
+   */
+  playCut(name: CutName, target?: string, opts: Omit<CutOptions, "sep" | "world"> & { loop?: boolean } = {}): Promise<void> {
+    const prev = this.cut;
+    if (prev) {
+      // straight from one cutscene into the next (a mission into the montage): the ship stays
+      // where it was, and the view does not come back to the cockpit in between
+      this.cut = null;
+      this.cam.copy(prev.anchor);
+      this.lastCam.copy(this.cam);
+      [this.yaw, this.pitch] = prev.look;
+      prev.done();
+    }
+    if (this.pilot) this.cancelAutopilot(false);
+    this.keys.clear();
+    this.brake = null;
+    this.vel.set(0, 0, 0);
+    void this.vessel.load();
+    const anchor = this.cam.clone();
+    const sun = this.live.get("sun")!.pos;
+    const other = target ? this.live.get(target) : undefined;
+    // the ship points at what the scene is about: Uranus, the mission's target, or Earth
+    const toward = name === "opening" ? this.live.get("uranus") : name === "mission" ? other : this.live.get("earth");
+    const nose = toward ? toward.pos.clone().sub(anchor) : this.forward();
+    if (nose.lengthSq() < 1e-12) this.forward(nose);
+    nose.normalize();
+    const up = new THREE.Vector3(0, 1, 0).addScaledVector(nose, -nose.y);
+    if (up.lengthSq() < 1e-6) up.set(1, 0, 0);
+    up.normalize();
+    const x = new THREE.Vector3().crossVectors(up, nose).normalize();
+    const side = x.clone().multiplyScalar(x.dot(sun.clone().sub(anchor)) >= 0 ? 1 : -1);
+    const sep = other ? other.pos.distanceTo(anchor) * 1000 : 0;
+    const { loop = false, ...rest } = opts;
+    const cutOpts: CutOptions = { ...rest, world: !!other && !isCraft(other.def), span: other?.def.spanM, body: target };
+    return new Promise((done) => {
+      this.cut = { name, opts: cutOpts, loop, shots: cutShots(name, { ...cutOpts, sep }), i: 0, t: 0, anchor, nose, up, x, side, target: target ?? null, look: [this.yaw, this.pitch], done, fov: CUT_FOV, roll: 0, warp: new THREE.Vector3() };
+      this.cutPlace(this.cut);
+      this.onCut?.(0);
+    });
+  }
+
+  /** Cut to a cutscene's next shot now (a montage cut to the dialogue). */
+  advanceCut() {
+    const c = this.cut;
+    if (!c || c.i + 1 >= c.shots.length) return;
+    c.i++;
+    c.t = 0;
+    this.cutPlace(c);
+    this.onCut?.(c.i, !!c.shots[c.i].seamless);
+  }
+
+  /**
+   * Move our ship over a world's sunlit side, `km` from its centre, facing it: a little off the
+   * Sun's line, so the world is a bright gibbous rather than a flat full disc (Earth's mission is
+   * filmed there, whichever side we found it from).
+   */
+  toDayside(id: string, km: number) {
+    const w = this.live.get(id);
+    const sun = this.live.get("sun");
+    if (!w || !sun) return;
+    if (this.pilot) this.cancelAutopilot(false);
+    this.releaseView();
+    const toSun = sun.pos.clone().sub(w.pos).normalize();
+    const across = new THREE.Vector3(0, 1, 0).cross(toSun).normalize();
+    this.cam.copy(w.pos).addScaledVector(toSun.addScaledVector(across, 0.6).normalize(), km);
+    this.lastCam.copy(this.cam);
+    this.vel.set(0, 0, 0);
+    const [y, p] = this.anglesTo(w.pos.clone().sub(this.cam));
+    this.yaw = this.yawT = this.wrapTo(y, this.yaw);
+    this.pitch = this.pitchT = p;
+    this.lastLook = [this.yaw, this.pitch];
+  }
+
+  /** Face the Sun at once (back in the cockpit after the opening's look at it). */
+  faceSun() {
+    const sun = this.live.get("sun");
+    if (!sun) return;
+    const [y, p] = this.anglesTo(sun.pos.clone().sub(this.cam));
+    this.yaw = this.yawT = this.wrapTo(y, this.yaw);
+    this.pitch = this.pitchT = p;
+    this.lastLook = [this.yaw, this.pitch];
+    this.baseLook = [this.yaw, this.pitch];
+  }
+
+  /** Stop a cutscene (or let go of its held last shot): back in the cockpit, looking where we were. */
+  endCut() {
+    const c = this.cut;
+    if (!c) return;
+    this.cut = null;
+    this.cam.copy(c.anchor);
+    this.lastCam.copy(this.cam);
+    this.vel.set(0, 0, 0);
+    [this.yaw, this.pitch] = c.look;
+    this.yawT = this.yaw;
+    this.pitchT = this.pitch;
+    this.lastLook = [this.yaw, this.pitch];
+    this.vesselRoot.visible = false;
+    this.bootGlitch(0.9);
+    this.onCut?.(-1);
+    c.done();
+  }
+
+  // ---------- public: what the story lets in ----------
+
+  /** vehicles a scan finds from farther off than usual, and in any direction (km): the story's
+   * signal source while it is being followed */
+  farSight = new Map<string, number>();
+
+  /** while set, a scan answers only for this body (the story is looking for it) */
+  scanOnly: string | null = null;
+  /** ...and only within this distance of it (0: the usual rule) */
+  scanOnlyKm = 0;
+  /** story sites and ships: a scan names one only when we are alongside it */
+  closeOnly = new Set<string>();
+
+  /** Name a body in the records (the story identified it some other way). */
+  reveal(id: string) {
+    if (!this.live.has(id) || this.records.get(id) === "scanned") return;
+    if (!this.numbers.has(id)) this.numbers.set(id, ++this.contactCount);
+    this.records.set(id, "scanned");
+    this.saveRecords();
+    this.onRecordsChange?.(this.identifiedIds(), [...this.reached]);
+  }
+
+  /** Close in on a vehicle and hold beside it (the arrival is reported as usual); false when we
+   * are already holding beside it or it is not there. */
+  closeIn(id: string): boolean {
+    const l = this.live.get(id);
+    if (!l || !isCraft(l.def) || this.view?.l === l) return false;
+    if (this.pilot) this.cancelAutopilot(false);
+    this.beginView(l, this.cam.clone());
+    return true;
+  }
+
+  /** Are we alongside this vehicle: holding beside it, or right next to it? */
+  beside(id: string) {
+    const l = this.live.get(id);
+    return !!l && (this.view?.l === l || l.dist <= SITE_ID_KM);
+  }
+  private hiddenIds = new Set<string>();
+
+  /** Bodies the story has not brought in yet: not drawn, scanned, listed or reachable. */
+  setHidden(ids: string[]) {
+    const next = new Set(ids);
+    for (const l of this.live.values()) {
+      const hide = next.has(l.def.id), was = this.hiddenIds.has(l.def.id);
+      if (hide && !was) {
+        this.bodies = this.bodies.filter((b) => b !== l);
+        if (l.group) l.group.visible = false;
+      } else if (!hide && was) this.bodies.push(l);
+    }
+    this.hiddenIds = next;
+  }
+
+  /** Stop dead and drop held keys (a scene takes the controls). */
+  halt() {
+    if (this.pilot) this.cancelAutopilot(false);
+    this.keys.clear();
+    this.brake = null;
+    this.vel.set(0, 0, 0);
+  }
+
+  /** the sensor interference right now (0..1), for the HUD to flicker with */
+  get interferenceNow() {
+    return this.interference;
+  }
+
+  // ---------- public: loading everything up front ----------
+
+  /**
+   * Fetch every survey map and vehicle model, hand the maps to the GPU and compile every
+   * material, all behind the loading screen, so nothing loads or stutters mid-flight.
+   * `onProgress` gets 0..1.
+   */
+  async preloadAll(onProgress: (k: number) => void) {
+    const size = this.opts.mobile ? "1k" : "full";
+    const jobs: Promise<unknown>[] = [];
+    const all = [...this.live.values()];
+    for (const l of all) {
+      this.ensureMesh(l);
+      if (l.craft) jobs.push(l.craft.load());
+      else if (l.material && hasMap(l.def)) {
+        l.mapAsked = true;
+        const material = l.material;
+        jobs.push(
+          attachMap(l.def, material, size).then(() => {
+            const t = material.uniforms.uMap.value as THREE.Texture | null;
+            if (t) this.renderer.initTexture(t);
+          }),
+        );
+      }
+    }
+    jobs.push(this.vessel.load());
+    let done = 0;
+    for (const j of jobs) void j.finally(() => onProgress(++done / Math.max(1, jobs.length)));
+    await Promise.allSettled(jobs);
+    // compile every material now (the frame loop puts visibility back next frame)
+    const hidden = all.filter((l) => l.group && !l.group.visible);
+    for (const l of hidden) l.group!.visible = true;
+    this.vesselRoot.visible = true;
+    try {
+      this.renderer.compile(this.scene, this.camera);
+    } finally {
+      for (const l of hidden) l.group!.visible = false;
+      this.vesselRoot.visible = !!this.cut;
+      for (const id of this.hiddenIds) {
+        const g = this.live.get(id)?.group;
+        if (g) g.visible = false;
+      }
+    }
+    onProgress(1);
+  }
+
+  // ---------- public: save and resume ----------
+
+  /** Where we are, relative to the nearest body. */
+  pose(): Pose {
+    let near: Live = this.live.get("sun")!, gap = Infinity;
+    for (const l of this.bodies) {
+      const g = l.dist - l.outer;
+      if (g < gap) {
+        gap = g;
+        near = l;
+      }
+    }
+    const o = (this.cut ? this.cut.anchor : this.cam).clone().sub(near.pos);
+    const [yaw, pitch] = this.cut ? this.cut.look : [this.yaw, this.pitch];
+    return { body: near.def.id, offset: [o.x, o.y, o.z], yaw, pitch };
+  }
+
+  /** km from the Sun and from us to a body, from the live positions */
+  distancesOf(id: string) {
+    const l = this.live.get(id);
+    return l ? { sun: l.pos.distanceTo(this.live.get("sun")!.pos), us: l.dist } : null;
+  }
+
+  /** Put the view back where a save left it (the body has moved on its orbit since). */
+  restorePose(p: Pose) {
+    const l = this.live.get(p.body);
+    if (!l || !p.offset.every(Number.isFinite)) return false;
+    this.tweens = [];
+    this.mode = "explore";
+    this.cam.copy(l.pos).add(new THREE.Vector3(...p.offset));
+    this.lastCam.copy(this.cam);
+    this.vel.set(0, 0, 0);
+    this.yaw = this.yawT = p.yaw;
+    this.pitch = this.pitchT = THREE.MathUtils.clamp(p.pitch, -1.55, 1.55);
+    this.baseLook = [this.yaw, this.pitch];
+    return true;
+  }
+
   // ---------- frame ----------
 
   private frame(dt: number, time: number, realDt: number) {
@@ -1520,6 +2262,7 @@ export class SpaceEngine {
       const shift = host.pos.clone().sub(before);
       this.cam.add(shift);
       this.lastCam.add(shift);
+      this.cut?.anchor.add(shift);
     }
 
     if (this.tweens.length) {
@@ -1541,8 +2284,8 @@ export class SpaceEngine {
       }
     }
 
-    const start = this.cam.clone();
-    if (this.pilot) this.autopilot(realDt);
+    if (this.cut) this.cutView(realDt);
+    else if (this.pilot) this.autopilot(realDt);
     else if (this.view) this.craftView(realDt);
     else if (this.inputEnabled) {
       // keyboard look, then ease the view toward its target
@@ -1555,9 +2298,10 @@ export class SpaceEngine {
       const e = 1 - Math.exp(-dt * LOOK_EASE);
       this.yaw += (this.yawT - this.yaw) * e;
       this.pitch += (this.pitchT - this.pitch) * e;
+      const before = this.cam.clone();
       this.fly(dt);
       // passing within reach of a vehicle closes in on it
-      this.checkCapture(start);
+      this.checkCapture(before);
     } else {
       this.timeScale = 1;
     }
@@ -1571,10 +2315,35 @@ export class SpaceEngine {
     this.motion += (lively - this.motion) * (1 - Math.exp(-dt / 0.3));
 
     // beside a vehicle the view rolls to level its planet's horizon; it rolls back after
-    if (!this.view) this.roll += (0 - this.roll) * (1 - Math.exp(-realDt * 3));
+    if (this.cut) this.roll = this.cut.roll;
+    else if (!this.view) this.roll += (0 - this.roll) * (1 - Math.exp(-realDt * 3));
     this.camera.rotation.set(this.pitch, this.yaw, this.roll);
+    // a cutscene camera is hand-held: it breathes a little
+    const drift = this.cut && !this.opts.reducedMotion ? this.cut.shots[this.cut.i]?.drift ?? 0 : 0;
+    if (drift > 0) {
+      const a = THREE.MathUtils.degToRad(drift), t = this.time;
+      this.camera.rotation.x += a * (Math.sin(t * 0.61) * 0.6 + Math.sin(t * 1.37 + 1.3) * 0.4);
+      this.camera.rotation.y += a * (Math.sin(t * 0.47 + 2.1) * 0.6 + Math.sin(t * 1.09 + 0.4) * 0.4);
+      this.camera.rotation.z += a * 0.5 * Math.sin(t * 0.33 + 0.7);
+    }
+    // a hard stop shakes the view, harder and longer the faster we were going
+    const j = this.joltState;
+    if (j) {
+      j.t += realDt;
+      const left = 1 - j.t / j.dur;
+      if (left <= 0) this.joltState = null;
+      else if (!this.opts.reducedMotion) {
+        const a = (0.004 + 0.05 * j.k * j.k) * left * left;
+        const s = j.t * 34 + j.seed;
+        this.camera.rotation.x += a * (Math.sin(s * 1.9) * 0.55 + (Math.random() - 0.5) * 0.9);
+        this.camera.rotation.y += a * (Math.sin(s * 1.4 + 1.1) * 0.55 + (Math.random() - 0.5) * 0.9);
+        this.camera.rotation.z += a * 0.8 * Math.sin(s * 0.8 + 2.3);
+      }
+    }
     // closing in on a vehicle breathes the field of view out a little and back
-    const fovGoal = this.fovDeg + (this.view?.phase === "zoom" && !this.opts.reducedMotion ? Math.sin(Math.PI * this.view.k) * 6 : 0);
+    // ...and the view lurches forward for an instant (the field of view snaps in, then eases back)
+    const lurch = this.joltState && !this.opts.reducedMotion ? this.joltState.k * 9 * Math.max(0, 1 - this.joltState.t / 0.3) : 0;
+    const fovGoal = (this.cut ? this.cut.fov : (this.zoomFov ?? this.fovDeg) + (this.view?.phase === "zoom" && !this.opts.reducedMotion ? Math.sin(Math.PI * this.view.k) * 6 : 0)) - lurch;
     if (Math.abs(this.camera.fov - fovGoal) > 0.01) {
       this.camera.fov += (fovGoal - this.camera.fov) * Math.min(1, dt * 10);
       this.camera.updateProjectionMatrix();
@@ -1585,8 +2354,9 @@ export class SpaceEngine {
 
     // passing dust and travel optics follow the motion
     const reduced = this.opts.reducedMotion;
-    this.dust.update(dt, this.vel, this.timeScale, this.camera, reduced);
-    this.optics.update(dt, this.vel.length(), reduced, realDt);
+    const moving = this.cut ? this.cut.warp : this.vel;
+    this.dust.update(dt, moving, this.timeScale, this.camera, reduced);
+    this.optics.update(dt, moving.length(), reduced, realDt);
     const tu = this.travel.uniforms;
     tu.uPower.value = this.optics.power;
     tu.uBlur.value = this.optics.blur;
@@ -1595,6 +2365,7 @@ export class SpaceEngine {
     tu.uFocusRadius.value = this.optics.focusRadius;
     tu.uFocusFeather.value = this.optics.focusFeather;
     this.grain.uniforms.uTime.value = time;
+    this.grain.uniforms.uInterfere.value = this.updateInterference(realDt);
     this.sky.update(time, this.motion, reduced);
 
     this.updateCallouts();
@@ -1603,6 +2374,7 @@ export class SpaceEngine {
     // a vehicle filling part of the view gets its own soft halo
     let glow = 0;
     for (const l of this.bodies) if (l.craft?.loaded && l.group?.visible) glow = Math.max(glow, smooth((l.px - 20) / 40));
+    if (this.vesselRoot.visible) glow = Math.max(glow, smooth((this.vesselPx - 20) / 40));
     this.craftGlow.render(this.renderer, this.scene, this.camera, glow);
     this.composer.render(dt);
 
@@ -1623,6 +2395,7 @@ export class SpaceEngine {
     this.sunBack[0] += (1 - SUN_GLARE_DIM * reading - this.sunBack[0]) * back;
     this.sunBack[1] += (1 - SUN_DISC_DIM * reading - this.sunBack[1]) * back;
     const pxPerRad = this.height / 2 / Math.tan((this.camera.fov * Math.PI) / 360);
+    this.placeVessel(sun, pxPerRad);
     const hours = (Date.now() - Date.UTC(2000, 0, 1, 12)) / 3.6e6;
     const q = new THREE.Quaternion();
     const spin = new THREE.Quaternion();
@@ -1665,8 +2438,13 @@ export class SpaceEngine {
             const sd = sun.pos.clone().sub(l.pos);
             const flux = (AU_KM / Math.max(sd.length(), 1)) ** 2;
             sd.normalize();
+            // a vehicle never runs brighter than when held in view (exposed for itself, front-lit),
+            // so a white hull against Earth's night side doesn't blow out into a glare
+            l.craft.look.exposure.value = Math.min(this.exposure.value, exposureFor(flux, 1, this.marsFlux));
             if (l.face && l.dist > CRAFT_RANGE_KM / 2) l.face = null;
             orientCraft(l.craft, l.face ?? sd);
+            // the wrecked expedition ship tumbles slowly, dead in space
+            if (l.def.id === "derelict-1") l.craft.group.quaternion.multiply(TUMBLE.setFromAxisAngle(TUMBLE_AXIS, this.time * 0.015));
             const p = l.def.parent && l.def.parent !== "sun" ? this.live.get(l.def.parent) : null;
             const toCraft = p ? l.pos.clone().sub(p.pos) : null;
             const pd = toCraft ? toCraft.length() : 1;
@@ -1801,9 +2579,19 @@ export class SpaceEngine {
     const toSun = sun.pos.clone().sub(near.pos).normalize();
     const toUs = this.cam.clone().sub(near.pos).normalize();
     // a vehicle turns its broad face to the light, so expose it as if seen front-lit
-    const target = exposureFor(flux, this.view ? 1 : toUs.dot(toSun), marsFlux);
+    this.marsFlux = marsFlux;
+    // filming our own ship: expose for it, front-lit; a montage shot exposes for what it films,
+    // straight away (a cut from Mercury to Neptune is a different light, not an adjustment)
+    const shot = this.cut?.shots[this.cut.i];
+    const filmed = shot?.orbit ? this.live.get(shot.orbit.body) : shot?.transfer ? this.live.get(shot.transfer.to.body) : undefined;
+    const target = filmed
+      ? exposureFor((AU_KM / Math.max(filmed.pos.distanceTo(sun.pos), 1)) ** 2, 1, marsFlux)
+      : this.cut
+        ? exposureFor((AU_KM / Math.max(this.cut.anchor.distanceTo(sun.pos), 1)) ** 2, 1, marsFlux)
+        : exposureFor(flux, this.view ? 1 : toUs.dot(toSun), marsFlux);
     const e = this.exposure.value;
-    const k = dt > 0 ? 1 - Math.exp(-dt / 1.2) : 1;
+    // a cutscene's shot starts at its own exposure (no glare while the eye adjusts after a cut)
+    const k = this.cut && this.cut.t < 0.1 ? 1 : dt > 0 ? 1 - Math.exp(-dt / 1.2) : 1;
     this.exposure.value = Math.exp(Math.log(e) + (Math.log(target) - Math.log(e)) * k);
   }
 
@@ -1967,6 +2755,8 @@ export class SpaceEngine {
   /** 0..1: how fully a scan reading of the Sun is showing (it must be on screen and near). */
   private sunReadingLevel() {
     const sun = this.live.get("sun")!;
+    // a shot of the Sun in a cutscene shows it as a scan reads it, not the bare glare
+    if (this.cut && this.cut.shots[this.cut.i]?.orbit?.body === "sun") return 1;
     if (sun.dist > SUN_READING_AU * AU_KM) return 0;
     const pending = this.scanning?.found.has("sun");
     if (!pending && !this.shownIds.has("sun")) return 0;
@@ -2099,9 +2889,11 @@ export class SpaceEngine {
     // planets, the Sun, dwarf planets, asteroids, and the probes that orbit the Sun itself
     const bodies = this.bodies
       .filter((l) => l.def.kind !== "moon" && (!isCraft(l.def) || l.def.parent === "sun"))
+      // the derelict only shows once it has been found
+      .filter((l) => l.def.id !== "derelict-1" || this.records.get("derelict-1") === "scanned")
       .map((l) => ({
         id: l.def.id,
-        name: l.def.name.toUpperCase(),
+        name: this.name(l.def.id),
         kind: l.def.kind,
         colour: l.def.palette[1],
         pos: rel(l.pos),
@@ -2246,7 +3038,9 @@ export class SpaceEngine {
       autopilot: auto,
       approach,
       hold: this.view ? this.name(this.view.l.def.id) : this.holding ? this.name(this.holding.id) : null,
-      scanStage: this.nextStage(fwd),
+      scanStage: this.scanOnly ? "local" : this.nextStage(fwd),
+      sunAU: this.live.get("sun")!.dist / AU_KM,
+      interference: this.interference,
     });
   }
 }

@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { store, useUI } from "@/lib/store";
 import { audio } from "@/lib/audio";
 import { BODIES, byId } from "@/lib/solar";
+import { explorationProgress } from "@/lib/clues";
+import { ENDING_STATE } from "@/lib/finale";
+import { Objective } from "./StoryHud";
 import { MAX_SPEED, shortKm } from "@/lib/units";
 import { useObservatory } from "../Observatory";
 import { Credit } from "../icons";
@@ -81,6 +84,29 @@ export function SoundToggle() {
   );
 }
 
+function ArchiveButton() {
+  const online = useUI((s) => s.unlocks.archive);
+  const count = useUI((s) => s.journey.archive.length);
+  const hl = useUI((s) => s.highlight.includes("archive"));
+  if (!online) return null;
+  return (
+    <button
+      type="button"
+      data-hl={hl}
+      aria-label="Open the archive of recovered records"
+      aria-haspopup="dialog"
+      onClick={() => {
+        if (store.get().locked || store.get().deepOnly) return;
+        audio.ui();
+        store.set({ archiveOpen: true });
+      }}
+      className="flex h-[32px] items-center gap-[6px] pl-[12px] font-hud text-[10.5px] font-bold leading-[13.2px] tracking-[0.63px] text-alert halo hover:text-loc md:h-[28px] md:pl-0 md:text-[12px] md:tracking-[0.3px]"
+    >
+      <span aria-hidden>▤</span> ARCHIVE{count > 0 && <span className="font-normal text-mint">{count}</span>}
+    </button>
+  );
+}
+
 function RecordsButton() {
   const { openRecords } = useObservatory();
   const open = useUI((s) => s.records !== "closed");
@@ -105,10 +131,15 @@ export function ScanPanel() {
   const story = useUI((s) => s.story);
   const stage = useUI((s) => s.scanStage);
   const scanning = useUI((s) => s.scanning);
+  const online = useUI((s) => s.unlocks.scan);
+  const belt = useUI((s) => s.journey.chapter === "belt");
+  const locked = useUI((s) => s.locked);
+  const hl = useUI((s) => s.highlight.includes("scan"));
+  const earthDeep = useUI((s) => s.journey.chapter === "earth" && s.journey.beats.includes("earth-identified") && !s.journey.beats.includes("earth-deep"));
   if (story === "contact" && !scanning) return null;
-  const deep = story === "exploring" && stage === "deep";
-  const label = scanning ? (deep ? "LOOKING DEEPER…" : "SCANNING…") : deep ? "DEEP SCAN" : "SCAN";
-  const small = deep ? "STARS & CONSTELLATIONS · F" : "NEARBY SKY · F";
+  const deep = (story === "exploring" && stage === "deep") || earthDeep;
+  const label = locked ? "SCAN LOCKED" : !online ? "SCAN OFFLINE" : scanning ? (deep ? "LOOKING DEEPER…" : "SCANNING…") : deep ? "DEEP SCAN" : "SCAN";
+  const small = locked ? "CONTROLS LOCKED" : !online ? (belt ? "SENSOR INTERFERENCE" : "SENSORS RECALIBRATING") : earthDeep ? "LIFE SIGNS · F" : deep ? "STARS & CONSTELLATIONS · F" : "NEARBY SKY · F";
   return (
     <section id="scan-panel" data-hud-in="8" className="absolute bottom-[calc(env(safe-area-inset-bottom)+76px)] left-1/2 z-[6] -translate-x-1/2 md:bottom-[77px]">
       <button
@@ -118,6 +149,8 @@ export function ScanPanel() {
         disabled={scanning}
         data-scanning={scanning}
         data-call={story === "awaiting-scan"}
+        data-offline={!online || locked}
+        data-hl={hl}
         aria-label={deep ? "Deep scan: stars and constellations (F)" : "Scan nearby sky (F)"}
         className="scan-btn h-[33px] min-w-[107px] whitespace-nowrap px-[15.3px] tracking-[2.4px] md:h-[40px] md:min-w-[140px] md:px-[18px] md:tracking-[0.3px]"
       >
@@ -131,6 +164,19 @@ export function ScanPanel() {
 }
 
 /* ---------- header ---------- */
+
+/** exploration progress, once the map is online */
+function Explored() {
+  const online = useUI((s) => s.unlocks.map);
+  const beats = useUI((s) => s.journey.beats);
+  const pct = useMemo(() => Math.floor(explorationProgress(beats) * 100), [beats]);
+  if (!online) return null;
+  return (
+    <div className="mt-[4px] hidden h-[15px] whitespace-nowrap font-hud text-[12px] leading-[15px] tracking-[0.3px] text-dim halo md:block">
+      EXPLORATION <b className="ml-[2px] font-normal text-mint glow">{pct}%</b>
+    </div>
+  );
+}
 
 const TOTALS = (() => {
   const k = { planet: 0, moon: 0, minor: 0, craft: 0 };
@@ -186,6 +232,7 @@ function Brand() {
       >
         {clock}
       </div>
+      <Explored />
       <div className="mt-[6px] flex h-[12px] whitespace-nowrap font-hud text-[9.5px] leading-[12px] tracking-[0.2375px] text-dim halo md:mt-[8px] md:h-[15px] md:text-[12px] md:leading-[15px] md:tracking-[0.3px]">
         {totals.map(([k, v, total]) => (
           <span key={k} className="mr-[10px] md:mr-[12px]">
@@ -280,7 +327,7 @@ const GOLD = "#f0b32a59";
 function Radar() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dotsRef = useRef<HTMLDivElement>(null);
-  const { engine, pick } = useObservatory();
+  const { engine, goTo } = useObservatory();
   useEffect(() => {
     const c = canvasRef.current!;
     const holder = dotsRef.current!;
@@ -386,7 +433,7 @@ function Radar() {
           const id = p.id;
           b.onclick = (ev) => {
             ev.stopPropagation();
-            pick(id);
+            goTo(id);
           };
           holder.append(b);
           pool.set(p.id, b);
@@ -409,7 +456,7 @@ function Radar() {
       cancelAnimationFrame(raf);
       for (const b of pool.values()) b.remove();
     };
-  }, [engine, pick]);
+  }, [engine, goTo]);
   return (
     <div className="scope-wrap relative mt-[6px] h-[96px] md:mt-[8px] md:h-[143px]">
       <canvas ref={canvasRef} id="radar-canvas" data-glitch aria-label="Three-dimensional local radar, range one million kilometres" className="block h-full w-full" />
@@ -421,7 +468,7 @@ function Radar() {
 function ContactList() {
   const contacts = useUI((s) => s.contacts);
   const target = useUI((s) => s.target);
-  const { pick } = useObservatory();
+  const { goTo } = useObservatory();
   const [more, setMore] = useState(false);
   const phoneLimit = 3;
   if (!contacts.length) return <p className="contacts-empty mt-[4px] font-hud text-[11px] text-dim halo md:text-[12px]">Scan to find nearby signals.</p>;
@@ -432,7 +479,7 @@ function ContactList() {
           <button
             key={c.id}
             type="button"
-            onClick={() => pick(c.id)}
+            onClick={() => goTo(c.id)}
             aria-pressed={target === c.id}
             aria-label={`Navigate toward ${c.name}`}
             title={c.name}
@@ -464,6 +511,9 @@ function BearingsPanel() {
   const elevation = useUI((s) => s.elevation);
   const course = useUI((s) => s.course);
   const alert = useUI((s) => s.courseAlert);
+  // the contact list stays dark until Earth has been found
+  const contactsOnline = useUI((s) => s.journey.beats.includes("earth-identified") || !["awakening", "inbound", "belt", "inner"].includes(s.journey.chapter));
+  const hl = useUI((s) => s.highlight.includes("contacts"));
   const h = String(Math.round(heading) % 360).padStart(3, "0");
   const el = `${elevation >= 0 ? "+" : "−"}${String(Math.abs(Math.round(elevation))).padStart(2, "0")}`;
   return (
@@ -489,10 +539,12 @@ function BearingsPanel() {
       </div>
       <Radar />
       <p className="mt-[2px] h-[12px] text-center text-[8px] leading-[12px] tracking-[0.2px] text-dim halo md:mt-[4px] md:h-[15px] md:text-[10px] md:leading-[15px] md:tracking-[0.25px]">J2000 ECLIPTIC · RANGE 1M KM</p>
-      <div id="bearing-contacts" className="mt-[8px] border-t border-rule pt-[6px] md:mt-[12px] md:pt-[8px]">
-        <p className="h-[13px] text-[10.5px] leading-[13px] tracking-[0.2625px] text-key glow md:h-[15px] md:text-[12px] md:leading-[15px] md:tracking-[0.3px]">CONTACTS</p>
-        <ContactList />
-      </div>
+      {contactsOnline && (
+        <div id="bearing-contacts" data-hl={hl} className="hl mt-[8px] border-t border-rule pt-[6px] md:mt-[12px] md:pt-[8px]">
+          <p className="h-[13px] text-[10.5px] leading-[13px] tracking-[0.2625px] text-key glow md:h-[15px] md:text-[12px] md:leading-[15px] md:tracking-[0.3px]">CONTACTS</p>
+          <ContactList />
+        </div>
+      )}
     </section>
   );
 }
@@ -598,6 +650,65 @@ function Toast() {
   );
 }
 
+/** strength of the signal being followed, under the location */
+function SignalMeter() {
+  const k = useUI((s) => s.signal);
+  if (k === null) return null;
+  return (
+    <div className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+36px)] z-[6] w-[180px] -translate-x-1/2 text-center font-hud text-[10px] leading-[14px] tracking-[1.2px] text-dim halo md:top-[62px] md:w-[220px]">
+      SIGNAL <b className="font-normal text-mint glow">{k}%</b>
+      <div className="mt-[3px] h-[3px] w-full bg-white/10">
+        <div className="h-full bg-mint transition-[width] duration-700" style={{ width: `${k}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Story read-outs (scan findings, signal alerts): a heading, then the lines one by one. */
+function Readout() {
+  const r = useUI((s) => s.readout);
+  const ending = useUI((s) => s.journey.chapter === "ending");
+  const [shown, setShown] = useState<NonNullable<typeof r> | null>(null);
+  useEffect(() => {
+    if (!r) return;
+    const a = window.setTimeout(() => setShown(r), 0);
+    const b = window.setTimeout(() => setShown((x) => (x?.key === r.key ? null : x)), r.ms);
+    return () => {
+      window.clearTimeout(a);
+      window.clearTimeout(b);
+    };
+  }, [r]);
+  if (!shown && ending) {
+    // home: the final state stays up
+    return (
+      <div role="status" className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+40px)] z-[6] -translate-x-1/2 whitespace-nowrap text-center font-hud text-[10px] leading-[16px] tracking-[1.2px] halo md:top-[66px] md:text-[11.5px] md:leading-[19px]">
+        {ENDING_STATE.map((l, i) => (
+          <p key={l} className={`readout-line ${i === 0 ? "text-alert" : "text-mint"}`} style={{ animationDelay: `${i * 700}ms` }}>
+            {l}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  if (!shown) return null;
+  return (
+    <div
+      key={shown.key}
+      id="readout"
+      role="status"
+      aria-live="polite"
+      className="readout absolute left-1/2 top-[calc(env(safe-area-inset-top)+40px)] z-[6] -translate-x-1/2 whitespace-nowrap text-center font-hud halo md:top-[66px]"
+    >
+      <p className="readout-line readout-title text-[11px] font-bold leading-[18px] tracking-[2px] text-alert md:text-[13.5px] md:leading-[22px]">{shown.title}</p>
+      {shown.lines.map((l, i) => (
+        <p key={i} className="readout-line text-[10.5px] leading-[17px] tracking-[1.3px] text-mint glow md:text-[12.5px] md:leading-[20px]" style={{ animationDelay: `${450 + i * 650}ms` }}>
+          {l}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export default function Hud() {
   useHudIn();
   useGlitch();
@@ -607,6 +718,7 @@ export default function Hud() {
         <Brand />
         <Location />
         <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+44px)] right-[var(--side)] flex flex-col items-end md:bottom-auto md:top-[30px] md:flex-row md:items-center md:gap-[16px]">
+          <ArchiveButton />
           <RecordsButton />
           <SoundToggle />
         </div>
@@ -624,6 +736,9 @@ export default function Hud() {
       <TargetGuide />
       <NavHelp />
       <Toast />
+      <SignalMeter />
+      <Readout />
+      <Objective />
     </div>
   );
 }

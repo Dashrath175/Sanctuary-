@@ -39,7 +39,6 @@ export type BodyDef = {
   label: string;
   /** records subtitle */
   sub: string;
-  callout: string;
   note: string;
   facts: Fact[];
   /** where the surface map or shape comes from */
@@ -57,6 +56,7 @@ const GM: Record<string, number> = {
   sun: 1.32712440018e11,
   earth: 403_503.2, // Earth + Moon
   mars: 42_828.37,
+  mercury: 22_031.87,
   jupiter: 126_686_534,
   saturn: 37_931_207,
   uranus: 5_793_951,
@@ -119,7 +119,6 @@ const STATE: Record<string, [[number, number, number], [number, number, number]]
   "-203": [[21602088.2, 361516866.8, 166123478.9], [-18.279504, -1.675002, 2.869234]],
   "-234": [[-2926974.2, 132791125.0, 57270554.2], [-30.188583, -0.485459, -0.248622]],
   "-98": [[3124654263.6, -8696961157.1, -3396517105.0], [5.307348, -11.6531, -4.516573]],
-  "-31": [[-4813844707.4, -24688928000.0, 5449510667.4], [-2.069797, -16.398994, 3.606267]],
   "-32": [[5972221347.0, -9141965436.3, -18603743851.4], [4.203397, -4.068038, -14.098109]],
 };
 
@@ -145,12 +144,12 @@ type PlanetData = {
 
 const planet = (
   id: string, jpl: string, name: string, radiusKm: number, palette: [string, string], pole: [number, number], spinHours: number,
-  d: PlanetData, extra: Partial<BodyDef>, callout: string, note: string, source: string,
+  d: PlanetData, extra: Partial<BodyDef>, note: string, source: string,
 ): BodyDef => ({
   id, jpl, name, kind: "planet", radiusKm, palette, surface: "globe", pole, spinHours, seed: d.n * 7 + 11,
   label: `${ORDINAL[d.n - 1]} PLANET`,
   sub: `${ORDINAL[d.n - 1]} PLANET · ${d.kind}`,
-  callout, note, source,
+  note, source,
   facts: [
     f("KIND", d.kind),
     f("TEMPERATURE", ...d.temp),
@@ -181,12 +180,12 @@ const PARENT_NAME: Record<string, string> = { earth: "EARTH", mars: "MARS", jupi
 
 const moon = (
   id: string, jpl: string, name: string, parent: string, radiusKm: number, palette: [string, string], d: MoonData,
-  extra: Partial<BodyDef>, callout: string, note: string, source: string,
+  extra: Partial<BodyDef>, note: string, source: string,
 ): BodyDef => ({
   id, jpl, name, kind: "moon", parent, radiusKm, palette, surface: "globe", seed: Number(jpl) || 1,
   label: `${PARENT_NAME[parent]} ${ROMAN[d.n - 1]}`,
   sub: `${PARENT_NAME[parent]} ${ROMAN[d.n - 1]} · MOON`,
-  callout, note, source,
+  note, source,
   facts: [
     f("KIND", `MOON OF ${PARENT_NAME[parent]}`),
     f("TEMPERATURE", ...d.temp),
@@ -214,12 +213,12 @@ type MinorData = {
 
 const minor = (
   id: string, jpl: string, name: string, kind: "dwarf" | "asteroid", radiusKm: number, palette: [string, string], d: MinorData,
-  extra: Partial<BodyDef>, callout: string, note: string, source: string,
+  extra: Partial<BodyDef>, note: string, source: string,
 ): BodyDef => ({
   id, jpl, name, kind, radiusKm, palette, surface: "globe", seed: id.length * 13 + Math.round(radiusKm),
   label: `${kind === "dwarf" ? "DWARF PLANET" : "ASTEROID"} (${d.number})`,
   sub: `${kind === "dwarf" ? "DWARF PLANET" : "ASTEROID"} (${d.number})`,
-  callout, note, source,
+  note, source,
   facts: [
     f("KIND", kind === "dwarf" ? "DWARF PLANET" : "ASTEROID"),
     f("TEMPERATURE", ...d.temp),
@@ -245,12 +244,12 @@ type CraftData = {
 
 const craft = (
   id: string, jpl: string, name: string, short: string, parent: string, spanM: number, launchYear: number, label: string, d: CraftData,
-  callout: string, note: string,
+  note: string,
 ): BodyDef => ({
   id, jpl, name, short, kind: jpl === "-125544" ? "satellite" : "spacecraft", parent, radiusKm: spanM / 2000,
   palette: ["#1f4c70", "#8fdcff"], surface: "craft", seed: Math.abs(Number(jpl)), spanM, launchYear,
   label, sub: label,
-  callout, note,
+  note,
   source:
     id === "juice" || id === "psyche-craft"
       ? "NO PUBLIC MODEL · SHAPE BUILT FOR THIS PROJECT FROM MISSION REFERENCES · ORIENTATION ILLUSTRATIVE · FACTS: NASA / ESA"
@@ -266,6 +265,27 @@ const craft = (
   ],
 });
 
+type RelicData = { kind: string; purpose: string; where: string; built: string };
+
+/** Relics: artificial objects left from the 2020s (fictional, built for the story). */
+const relic = (
+  id: string, jpl: string, name: string, kind: "spacecraft" | "satellite", parent: string, spanM: number, label: string, d: RelicData, note: string,
+): BodyDef => ({
+  id, jpl, name, short: name.toUpperCase(), kind, parent, radiusKm: spanM / 2000,
+  palette: ["#1f4c70", "#8fdcff"], surface: "craft", seed: id.length * 977 + Math.round(spanM * 13), spanM,
+  label, sub: label, note,
+  source: "FICTIONAL OBJECT · SHAPE BUILT FOR THIS PROJECT",
+  facts: [
+    f("KIND", d.kind),
+    f("PURPOSE", d.purpose),
+    f("OPERATOR", "UNKNOWN"),
+    f("BUILT", d.built),
+    f("WHERE", d.where),
+    f("STATUS", "INACTIVE · DAMAGED"),
+    f("SPAN", `${Math.round(spanM)} M`),
+  ],
+});
+
 const MAP_NASA3D = "NASA 3D RESOURCES";
 const PROCEDURAL_NOTE = "PROCEDURAL STAND-IN · NO GLOBAL MAP EXISTS YET";
 
@@ -273,7 +293,6 @@ export const BODIES: BodyDef[] = [
   {
     id: "sun", jpl: "10", name: "Sun", kind: "star", radiusKm: 695_700, palette: ["#ffd685", "#fff7cc"], surface: "sun",
     pole: [286.13, 63.87], spinHours: 609.12, seed: 1, label: "G2V STAR", sub: "G2V STAR · THE SOLAR SYSTEM'S STAR",
-    callout: "the Sun. everything out here still answers to it.",
     note: "A middle-aged yellow dwarf holding 99.8% of the system's mass; its light takes eight minutes to reach Earth.",
     source: "DISC RENDERED IN THE SHADER · FACTS: NASA SUN FACT SHEET",
     facts: [
@@ -288,173 +307,203 @@ export const BODIES: BodyDef[] = [
   },
   planet("mercury", "199", "Mercury", 2439.4, ["#ac9982", "#e9bc6c"], [281.01, 61.42], 1407.6,
     { n: 1, kind: "ROCKY PLANET", temp: ["−173 TO 427 °C", "NIGHT TO DAY"], air: "NONE · A THIN EXOSPHERE", madeOf: "IRON CORE · ROCKY MANTLE", gravity: "3.7 M/S²", day: ["176 EARTH DAYS", "SUNRISE TO SUNRISE"], year: "88 DAYS", moons: "0" },
-    {}, "Mercury. small, fast and scorched.", "The smallest planet, with almost no air to hold its heat.", "NASA/JHUAPL/CIW MESSENGER GLOBAL MOSAIC (PIA16298)"),
+    {}, "The smallest planet, with almost no air to hold its heat.", "NASA/JHUAPL/CIW MESSENGER GLOBAL MOSAIC (PIA16298)"),
   planet("venus", "299", "Venus", 6051.8, ["#a86521", "#ffd085"], [272.76, 67.16], -5832.5,
     { n: 2, kind: "ROCKY PLANET", temp: ["464 °C", "AT THE SURFACE"], air: "CO₂ 96.5% · N₂ 3.5%", madeOf: "ROCK · IRON CORE", gravity: "8.9 M/S²", day: ["243 EARTH DAYS", "SPINS BACKWARDS"], year: "225 DAYS", moons: "0" },
-    {}, "Venus, under a lid of acid cloud.", "Hotter than Mercury, wrapped in a crushing carbon-dioxide sky. The map shows the radar-mapped ground beneath the clouds.", `NASA/JPL MAGELLAN RADAR MOSAIC · ${MAP_NASA3D}`),
+    {}, "Hotter than Mercury, wrapped in a crushing carbon-dioxide sky. The map shows the radar-mapped ground beneath the clouds.", `NASA/JPL MAGELLAN RADAR MOSAIC · ${MAP_NASA3D}`),
   planet("earth", "399", "Earth", 6371.0, ["#087e86", "#47ffa9"], [0, 90], 23.934,
     { n: 3, kind: "ROCKY PLANET", temp: ["15 °C", "MEAN"], air: "N₂ 78% · O₂ 21%", madeOf: "IRON CORE · ROCK · 71% OCEAN", gravity: "9.8 M/S²", day: ["23 H 56 MIN"], year: "365.25 DAYS", moons: "1" },
-    { axesKm: [6378.1, 6378.1, 6356.8] }, "Earth. home, from out here.", "The only place known to hold life, and liquid water at the surface.", `NASA RELIEF MAP · ${MAP_NASA3D}`),
+    { axesKm: [6378.1, 6378.1, 6356.8] }, "The only place known to hold life, and liquid water at the surface.", `NASA RELIEF MAP · ${MAP_NASA3D}`),
   planet("mars", "499", "Mars", 3389.5, ["#b94020", "#ffbb5c"], [317.68, 52.89], 24.623,
     { n: 4, kind: "ROCKY PLANET", temp: ["−63 °C", "MEAN"], air: "CO₂ 95% · THIN", madeOf: "BASALT · IRON-RICH DUST · IRON CORE", gravity: "3.7 M/S²", day: ["24 H 37 MIN"], year: "687 DAYS", moons: "2" },
-    { axesKm: [3396.2, 3396.2, 3376.2] }, "Mars, rust-red and cold.", "Iron-rich dust, polar caps and the tallest volcano in the system.", `NASA/USGS VIKING MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [3396.2, 3396.2, 3376.2] }, "Iron-rich dust, polar caps and the tallest volcano in the system.", `NASA/USGS VIKING MOSAIC · ${MAP_NASA3D}`),
   planet("jupiter", "599", "Jupiter", 69911, ["#b25722", "#f5bf40"], [268.06, 64.5], 9.925,
     { n: 5, kind: "GAS GIANT", temp: ["−108 °C", "AT 1 BAR"], air: "H₂ 90% · He 10%", madeOf: "HYDROGEN · HELIUM · METALLIC HYDROGEN DEEP DOWN", gravity: "24.8 M/S²", day: ["9 H 56 MIN"], year: "11.9 YEARS", moons: "95+" },
-    { axesKm: [71492, 71492, 66854] }, "Jupiter. the giant, banded and storming.", "More than twice the mass of every other planet combined.", `NASA CASSINI CLOUD MAP · ${MAP_NASA3D}`),
+    { axesKm: [71492, 71492, 66854] }, "More than twice the mass of every other planet combined.", `NASA CASSINI CLOUD MAP · ${MAP_NASA3D}`),
   planet("saturn", "699", "Saturn", 58232, ["#af783d", "#f1d193"], [40.59, 83.54], 10.656,
     { n: 6, kind: "GAS GIANT", temp: ["−139 °C", "AT 1 BAR"], air: "H₂ 96% · He 3%", madeOf: "HYDROGEN · HELIUM · ROCKY CORE", gravity: "10.4 M/S²", day: ["10 H 34 MIN"], year: "29.5 YEARS", moons: "270+" },
-    { rings: "saturn", axesKm: [60268, 60268, 54364] }, "Saturn, and the rings.", "Light enough to float, ringed by ice that is mostly only metres thick.", `NASA CLOUD MAP · ${MAP_NASA3D}`),
+    { rings: "saturn", axesKm: [60268, 60268, 54364] }, "Light enough to float, ringed by ice that is mostly only metres thick.", `NASA CLOUD MAP · ${MAP_NASA3D}`),
   planet("uranus", "799", "Uranus", 25362, ["#278e8e", "#83e3cc"], [257.31, -15.18], -17.24,
     { n: 7, kind: "ICE GIANT", temp: ["−195 °C", "CLOUD TOPS"], air: "H₂ 83% · He 15% · CH₄ 2%", madeOf: "WATER · AMMONIA · METHANE ICES · ROCKY CORE", gravity: "8.9 M/S²", day: ["17 H 14 MIN", "ROLLS ALONG ITS ORBIT, 98° TILT"], year: "84 YEARS", moons: "29" },
-    { rings: "uranus", axesKm: [25559, 25559, 24973] }, "Uranus. seventh from the Sun, lying on its side.", "An ice giant tipped over, with thin dark rings and a family of icy moons.", PROCEDURAL_NOTE),
+    { rings: "uranus", axesKm: [25559, 25559, 24973] }, "An ice giant tipped over, with thin dark rings and a family of icy moons.", PROCEDURAL_NOTE),
   planet("neptune", "899", "Neptune", 24622, ["#375daf", "#9dacdf"], [299.36, 43.46], 16.11,
     { n: 8, kind: "ICE GIANT", temp: ["−201 °C", "CLOUD TOPS"], air: "H₂ 80% · He 19% · CH₄ 1.5%", madeOf: "WATER · AMMONIA · METHANE ICES · ROCKY CORE", gravity: "11.2 M/S²", day: ["16 H 6 MIN"], year: "165 YEARS", moons: "16" },
-    { rings: "neptune", axesKm: [24764, 24764, 24341] }, "Neptune, deep blue and windier than anywhere.", "The outermost planet; winds reach 2,100 km/h and its biggest moon orbits the wrong way.", `NASA CLOUD MAP · ${MAP_NASA3D}`),
+    { rings: "neptune", axesKm: [24764, 24764, 24341] }, "The outermost planet; winds reach 2,100 km/h and its biggest moon orbits the wrong way.", `NASA CLOUD MAP · ${MAP_NASA3D}`),
 
   moon("moon", "301", "Moon", "earth", 1737.4, ["#858a91", "#d6ccb0"],
     { n: 1, temp: ["−173 TO 127 °C", "NIGHT TO DAY"], air: "NONE", madeOf: "ROCK · SMALL IRON CORE", orbitKm: 384_400, gravity: "1.62 M/S²", period: "27.3 DAYS · TIDALLY LOCKED", found: "PREHISTORY" },
-    {}, "the Moon. a long way from home.", "Earth's companion, probably born from a giant impact; the dark plains are old lava.", "NASA/GSFC/ASU LRO · SVS CGI MOON KIT"),
+    {}, "Earth's companion, probably born from a giant impact; the dark plains are old lava.", "NASA/GSFC/ASU LRO · SVS CGI MOON KIT"),
   moon("phobos", "401", "Phobos", "mars", 11.1, ["#665043", "#d0b991"],
     { n: 1, temp: ["−40 °C", "MEAN"], air: "NONE", madeOf: "CARBON-RICH ROCK · LOOSE RUBBLE", orbitKm: 9_376, gravity: "0.0057 M/S²", period: "7 H 39 MIN · TIDALLY LOCKED", found: "A. HALL · 1877" },
-    { axesKm: [13.0, 11.4, 9.1], shape: "lumpy" }, "Phobos, skimming low over Mars.", "A lumpy moon spiralling slowly inward; Mars will tear it apart in tens of millions of years.", `VIKING / MARS EXPRESS MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [13.0, 11.4, 9.1], shape: "lumpy" }, "A lumpy moon spiralling slowly inward; Mars will tear it apart in tens of millions of years.", `VIKING / MARS EXPRESS MOSAIC · ${MAP_NASA3D}`),
   moon("deimos", "402", "Deimos", "mars", 6.2, ["#756454", "#d8c5a0"],
     { n: 2, temp: ["−40 °C", "MEAN"], air: "NONE", madeOf: "CARBON-RICH ROCK · SMOOTH DUST", orbitKm: 23_463, gravity: "0.003 M/S²", period: "30 H 18 MIN · TIDALLY LOCKED", found: "A. HALL · 1877" },
-    { axesKm: [7.8, 6.0, 5.1], shape: "lumpy" }, "Deimos, the smaller of the two.", "Smooth, dusty and only about 12 km across.", `VIKING MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [7.8, 6.0, 5.1], shape: "lumpy" }, "Smooth, dusty and only about 12 km across.", `VIKING MOSAIC · ${MAP_NASA3D}`),
   moon("io", "501", "Io", "jupiter", 1821.6, ["#875025", "#f4d36e"],
     { n: 1, temp: ["−143 °C", "SURFACE · LAVA TO 1,600 °C"], air: "THIN SULFUR DIOXIDE", madeOf: "SILICATE ROCK · IRON CORE", orbitKm: 421_700, gravity: "1.8 M/S²", period: "1.77 DAYS · TIDALLY LOCKED", found: "GALILEO · 1610" },
-    { axesKm: [1829.4, 1819.4, 1815.7] }, "Io. volcanoes everywhere.", "The most volcanic body known, squeezed and heated by Jupiter's tides.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [1829.4, 1819.4, 1815.7] }, "The most volcanic body known, squeezed and heated by Jupiter's tides.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
   moon("europa", "502", "Europa", "jupiter", 1560.8, ["#516a68", "#d1ead6"],
     { n: 2, temp: ["−160 °C", "SURFACE"], air: "TRACE OXYGEN", madeOf: "ICE SHELL OVER A SALTY OCEAN · ROCK", orbitKm: 671_034, gravity: "1.3 M/S²", period: "3.55 DAYS · TIDALLY LOCKED", found: "GALILEO · 1610" },
-    {}, "Europa, an ocean under the ice.", "A cracked ice shell over a salty ocean with more water than all of Earth's.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
+    {}, "A cracked ice shell over a salty ocean with more water than all of Earth's.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
   moon("ganymede", "503", "Ganymede", "jupiter", 2634.1, ["#665c52", "#c8d1b6"],
     { n: 3, temp: ["−160 °C", "SURFACE"], air: "TRACE OXYGEN", madeOf: "ICE AND ROCK · IRON CORE · BURIED OCEAN", orbitKm: 1_070_412, gravity: "1.4 M/S²", period: "7.15 DAYS · TIDALLY LOCKED", found: "GALILEO · 1610" },
-    {}, "Ganymede, bigger than Mercury.", "The largest moon in the system, the only one with its own magnetic field.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
+    {}, "The largest moon in the system, the only one with its own magnetic field.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
   moon("callisto", "504", "Callisto", "jupiter", 2410.3, ["#49463f", "#b6c5af"],
     { n: 4, temp: ["−139 °C", "SURFACE"], air: "TRACE CARBON DIOXIDE", madeOf: "ICE AND ROCK, BARELY SEPARATED", orbitKm: 1_882_709, gravity: "1.2 M/S²", period: "16.7 DAYS · TIDALLY LOCKED", found: "GALILEO · 1610" },
-    {}, "Callisto, cratered from pole to pole.", "One of the most heavily cratered surfaces known, unchanged for billions of years.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
+    {}, "One of the most heavily cratered surfaces known, unchanged for billions of years.", `GALILEO–VOYAGER MOSAIC · ${MAP_NASA3D}`),
   moon("mimas", "601", "Mimas", "saturn", 198.2, ["#626b67", "#dee5cd"],
     { n: 1, temp: ["−209 °C", "SURFACE"], air: "NONE", madeOf: "MOSTLY WATER ICE", orbitKm: 185_539, gravity: "0.064 M/S²", period: "22.6 HOURS · TIDALLY LOCKED", found: "W. HERSCHEL · 1789" },
-    { axesKm: [207.8, 196.7, 190.6] }, "Mimas, with the one great crater.", "Herschel crater spans a third of its face.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [207.8, 196.7, 190.6] }, "Herschel crater spans a third of its face.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
   moon("enceladus", "602", "Enceladus", "saturn", 252.1, ["#60817c", "#dbf5e6"],
     { n: 2, temp: ["−201 °C", "SURFACE"], air: "WATER-VAPOUR PLUMES FROM THE SOUTH POLE", madeOf: "ICE OVER A GLOBAL OCEAN · ROCKY CORE", orbitKm: 238_042, gravity: "0.11 M/S²", period: "32.9 HOURS · TIDALLY LOCKED", found: "W. HERSCHEL · 1789" },
-    { axesKm: [256.6, 251.4, 248.3] }, "Enceladus, spraying ice into space.", "Geysers at its south pole throw ocean water into space and feed Saturn's E ring.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [256.6, 251.4, 248.3] }, "Geysers at its south pole throw ocean water into space and feed Saturn's E ring.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
   moon("tethys", "603", "Tethys", "saturn", 531.1, ["#657773", "#d3e7d8"],
     { n: 3, temp: ["−187 °C", "SURFACE"], air: "NONE", madeOf: "ALMOST PURE WATER ICE", orbitKm: 294_672, gravity: "0.15 M/S²", period: "1.89 DAYS · TIDALLY LOCKED", found: "G. D. CASSINI · 1684" },
-    { axesKm: [538.4, 528.3, 526.3] }, "Tethys, nearly pure water ice.", "Low density and a canyon running three-quarters of the way round.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [538.4, 528.3, 526.3] }, "Low density and a canyon running three-quarters of the way round.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
   moon("dione", "604", "Dione", "saturn", 561.4, ["#526d70", "#c1dfda"],
     { n: 4, temp: ["−186 °C", "SURFACE"], air: "TRACE OXYGEN", madeOf: "ICE OVER A ROCKY CORE", orbitKm: 377_415, gravity: "0.23 M/S²", period: "2.74 DAYS · TIDALLY LOCKED", found: "G. D. CASSINI · 1684" },
-    { axesKm: [563.4, 561.3, 559.6] }, "Dione, streaked with ice cliffs.", "Its two hemispheres differ: bright ice cliffs on one face, craters on the other.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [563.4, 561.3, 559.6] }, "Its two hemispheres differ: bright ice cliffs on one face, craters on the other.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
   moon("rhea", "605", "Rhea", "saturn", 763.8, ["#696e61", "#d7dec3"],
     { n: 5, temp: ["−174 °C", "DAYSIDE"], air: "TRACE OXYGEN · CARBON DIOXIDE", madeOf: "ICE AND ROCK", orbitKm: 527_068, gravity: "0.26 M/S²", period: "4.52 DAYS · TIDALLY LOCKED", found: "G. D. CASSINI · 1672" },
-    { axesKm: [765.0, 763.1, 762.4] }, "Rhea, old and crowded with craters.", "Saturn's second-largest moon, a cold, battered ball of ice.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [765.0, 763.1, 762.4] }, "Saturn's second-largest moon, a cold, battered ball of ice.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
   moon("titan", "606", "Titan", "saturn", 2574.7, ["#875020", "#eec376"],
     { n: 6, temp: ["−179 °C", "SURFACE"], air: "N₂ 95% · CH₄ 5% · 1.5 BAR", madeOf: "ICE AND ROCK · BURIED WATER OCEAN", orbitKm: 1_221_870, gravity: "1.35 M/S²", period: "15.9 DAYS · TIDALLY LOCKED", found: "C. HUYGENS · 1655" },
-    { haze: [0.9, 2.6, 0.008] }, "Titan, hidden under orange haze.", "Thick nitrogen air, methane rain and lakes; the map shows the ground as Cassini saw it through the haze.", "NASA/JPL/SSI CASSINI ISS NEAR-INFRARED MAP (PIA19658)"),
+    { haze: [0.9, 2.6, 0.008] }, "Thick nitrogen air, methane rain and lakes; the map shows the ground as Cassini saw it through the haze.", "NASA/JPL/SSI CASSINI ISS NEAR-INFRARED MAP (PIA19658)"),
   moon("hyperion", "607", "Hyperion", "saturn", 135, ["#70543f", "#d9bc88"],
     { n: 7, temp: ["−180 °C", "SURFACE"], air: "NONE", madeOf: "POROUS WATER ICE", orbitKm: 1_481_010, gravity: "0.02 M/S²", period: "21.3 DAYS · TUMBLES CHAOTICALLY", found: "BOND & LASSELL · 1848" },
-    { axesKm: [180, 133, 103], shape: "lumpy" }, "Hyperion, tumbling like a sponge.", "Porous and chaotic in its spin; deep craters give it a sponge-like look.", PROCEDURAL_NOTE),
+    { axesKm: [180, 133, 103], shape: "lumpy" }, "Porous and chaotic in its spin; deep craters give it a sponge-like look.", PROCEDURAL_NOTE),
   moon("iapetus", "608", "Iapetus", "saturn", 734.5, ["#3d352f", "#e0d8bb"],
     { n: 8, temp: ["−143 TO −173 °C", "DARK TO BRIGHT SIDE"], air: "NONE", madeOf: "ICE WITH A DARK DUST COAT ON ONE FACE", orbitKm: 3_560_820, gravity: "0.22 M/S²", period: "79.3 DAYS · TIDALLY LOCKED", found: "G. D. CASSINI · 1671" },
-    { axesKm: [745.7, 745.7, 712.1] }, "Iapetus, one side dark, one side bright.", "Two-toned, with a ridge along its equator.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
+    { axesKm: [745.7, 745.7, 712.1] }, "Two-toned, with a ridge along its equator.", `CASSINI MOSAIC · ${MAP_NASA3D}`),
   moon("ariel", "701", "Ariel", "uranus", 578.9, ["#617778", "#cddfd9"],
     { n: 1, temp: ["ABOUT −210 °C", "SURFACE"], air: "NONE", madeOf: "WATER ICE AND ROCK", orbitKm: 190_900, gravity: "0.27 M/S²", period: "2.52 DAYS · TIDALLY LOCKED", found: "W. LASSELL · 1851" },
-    { axesKm: [581.1, 577.7, 577.9] }, "Ariel, the brightest of Uranus's moons.", "Young surface cut by long rift valleys.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
+    { axesKm: [581.1, 577.7, 577.9] }, "Young surface cut by long rift valleys.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
   moon("umbriel", "702", "Umbriel", "uranus", 584.7, ["#393e43", "#a5b7b2"],
     { n: 2, temp: ["ABOUT −200 °C", "SURFACE"], air: "NONE", madeOf: "WATER ICE AND ROCK · DARK COATING", orbitKm: 266_000, gravity: "0.23 M/S²", period: "4.14 DAYS · TIDALLY LOCKED", found: "W. LASSELL · 1851" },
-    {}, "Umbriel, dark and quiet.", "The darkest of the large Uranian moons, with one bright ring of a crater.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
+    {}, "The darkest of the large Uranian moons, with one bright ring of a crater.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
   moon("titania", "703", "Titania", "uranus", 788.9, ["#686768", "#ced4cd"],
     { n: 3, temp: ["ABOUT −200 °C", "SURFACE"], air: "NONE", madeOf: "WATER ICE AND ROCK", orbitKm: 436_300, gravity: "0.38 M/S²", period: "8.71 DAYS · TIDALLY LOCKED", found: "W. HERSCHEL · 1787" },
-    {}, "Titania, largest moon of Uranus.", "Canyons and scarps across an icy crust.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
+    {}, "Canyons and scarps across an icy crust.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
   moon("oberon", "704", "Oberon", "uranus", 761.4, ["#554943", "#c2beb0"],
     { n: 4, temp: ["ABOUT −200 °C", "SURFACE"], air: "NONE", madeOf: "WATER ICE AND ROCK", orbitKm: 583_500, gravity: "0.35 M/S²", period: "13.5 DAYS · TIDALLY LOCKED", found: "W. HERSCHEL · 1787" },
-    {}, "Oberon, furthest of the big five.", "Old, cratered, with dark crater floors.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
+    {}, "Old, cratered, with dark crater floors.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
   moon("miranda", "705", "Miranda", "uranus", 235.8, ["#666e64", "#dbe1c8"],
     { n: 5, temp: ["ABOUT −187 °C", "SURFACE"], air: "NONE", madeOf: "WATER ICE AND ROCK", orbitKm: 129_900, gravity: "0.08 M/S²", period: "1.41 DAYS · TIDALLY LOCKED", found: "G. KUIPER · 1948" },
-    { axesKm: [240.4, 234.2, 232.9] }, "Miranda, patched together.", "Twenty-kilometre cliffs on a small, strange moon.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
+    { axesKm: [240.4, 234.2, 232.9] }, "Twenty-kilometre cliffs on a small, strange moon.", `VOYAGER 2 MOSAIC · ${MAP_NASA3D} · NORTH RECONSTRUCTED`),
   moon("triton", "801", "Triton", "neptune", 1353.4, ["#6c656c", "#dadcce"],
     { n: 1, temp: ["−235 °C", "SURFACE"], air: "THIN NITROGEN", madeOf: "NITROGEN ICE OVER ROCK AND METAL", orbitKm: 354_759, gravity: "0.78 M/S²", period: "5.88 DAYS · BACKWARDS", found: "W. LASSELL · 1846" },
-    {}, "Triton, orbiting backwards.", "Probably a captured Kuiper belt world, with nitrogen geysers.", "NASA/JPL/USGS VOYAGER 2 MOSAIC (PIA18668) · UNSEEN TERRAIN RECONSTRUCTED"),
+    {}, "Probably a captured Kuiper belt world, with nitrogen geysers.", "NASA/JPL/USGS VOYAGER 2 MOSAIC (PIA18668) · UNSEEN TERRAIN RECONSTRUCTED"),
   moon("charon", "901", "Charon", "pluto", 606, ["#67545a", "#ced2c4"],
     { n: 1, temp: ["−220 °C", "SURFACE"], air: "NONE", madeOf: "WATER ICE AND ROCK", orbitKm: 19_591, gravity: "0.29 M/S²", period: "6.39 DAYS · LOCKED FACE TO FACE", found: "J. CHRISTY · 1978" },
-    {}, "Charon, locked face to face with Pluto.", "Half Pluto's size; the two circle a point in the space between them.", `NEW HORIZONS MOSAIC · ${MAP_NASA3D}`),
+    {}, "Half Pluto's size; the two circle a point in the space between them.", `NEW HORIZONS MOSAIC · ${MAP_NASA3D}`),
 
   minor("pluto", "999", "Pluto", "dwarf", 1188.3, ["#5e3324", "#f1e3c9"],
     { number: "134340", temp: ["−229 °C", "MEAN"], madeOf: "NITROGEN AND METHANE ICE · WATER ICE · ROCK", gravity: "0.62 M/S²", day: "6.4 DAYS · BACKWARDS", year: "248 YEARS", found: "C. TOMBAUGH · 1930" },
-    { pole: [132.99, -6.16], spinHours: -153.29 }, "Pluto. a long way out.", "A nitrogen-ice plain shaped like a heart, mountains of water ice and a hazy blue sky.", `NEW HORIZONS MOSAIC · ${MAP_NASA3D} · SOUTH OF 30°S UNSEEN`),
+    { pole: [132.99, -6.16], spinHours: -153.29 }, "A nitrogen-ice plain shaped like a heart, mountains of water ice and a hazy blue sky.", `NEW HORIZONS MOSAIC · ${MAP_NASA3D} · SOUTH OF 30°S UNSEEN`),
   minor("ceres", "1;", "Ceres", "dwarf", 469.7, ["#56595a", "#d3d1c7"],
     { number: "1", temp: ["−105 °C", "MEAN"], madeOf: "ROCK AND ICE · SALTY BRINE DEPOSITS", gravity: "0.28 M/S²", day: "9 H 4 MIN", year: "4.6 YEARS", found: "G. PIAZZI · 1801" },
-    { pole: [291.42, 66.76], spinHours: 9.074, axesKm: [482.1, 482.1, 445.9] }, "Ceres, largest thing in the belt.", "A dwarf planet with bright salt deposits in its craters.", "NASA/JPL/UCLA/MPS/DLR/IDA DAWN MAP (PIA20354)"),
+    { pole: [291.42, 66.76], spinHours: 9.074, axesKm: [482.1, 482.1, 445.9] }, "A dwarf planet with bright salt deposits in its craters.", "NASA/JPL/UCLA/MPS/DLR/IDA DAWN MAP (PIA20354)"),
   minor("vesta", "4;", "Vesta", "asteroid", 261.4, ["#655b50", "#e2d7c2"],
     { number: "4", temp: ["−188 TO −18 °C", "NIGHT TO DAY"], madeOf: "BASALT CRUST · IRON CORE", gravity: "0.25 M/S²", day: "5 H 20 MIN", year: "3.6 YEARS", found: "H. OLBERS · 1807" },
-    { axesKm: [286.3, 278.6, 223.2], shape: "basin" }, "Vesta, with a mountain twice Everest.", "A layered world, visited by Dawn in 2011; a giant basin scars its south pole.", PROCEDURAL_NOTE),
+    { axesKm: [286.3, 278.6, 223.2], shape: "basin" }, "A layered world, visited by Dawn in 2011; a giant basin scars its south pole.", PROCEDURAL_NOTE),
   minor("pallas", "2;", "Pallas", "asteroid", 256.5, ["#4f5659", "#cdd3d2"],
     { number: "2", temp: ["ABOUT −110 °C", "MEAN"], madeOf: "CARBON-RICH ROCK", gravity: "0.21 M/S²", day: "7 H 49 MIN", year: "4.6 YEARS", found: "H. OLBERS · 1802" },
-    { axesKm: [284, 266, 224], shape: "lumpy" }, "Pallas, tilted steeply to the rest.", "Its orbit leans 35° out of the plane, so it is seldom visited.", PROCEDURAL_NOTE),
+    { axesKm: [284, 266, 224], shape: "lumpy" }, "Its orbit leans 35° out of the plane, so it is seldom visited.", PROCEDURAL_NOTE),
   minor("hygiea", "10;", "Hygiea", "asteroid", 203.6, ["#3e4142", "#b9bab3"],
     { number: "10", temp: ["ABOUT −110 °C", "MEAN"], madeOf: "DARK CARBON-RICH ROCK", gravity: "0.15 M/S²", day: "13 H 50 MIN", year: "5.6 YEARS", found: "A. DE GASPARIS · 1849" },
-    { axesKm: [225, 215, 212] }, "Hygiea, round and dark.", "Possibly round enough to count as a dwarf planet.", PROCEDURAL_NOTE),
+    { axesKm: [225, 215, 212] }, "Possibly round enough to count as a dwarf planet.", PROCEDURAL_NOTE),
   minor("psyche", "16;", "Psyche", "asteroid", 111, ["#5b5550", "#d6ccbe"],
     { number: "16", temp: ["ABOUT −160 °C", "MEAN"], madeOf: "IRON-NICKEL METAL AND ROCK", gravity: "0.14 M/S²", day: "4 H 12 MIN", year: "5.0 YEARS", found: "A. DE GASPARIS · 1852" },
-    { axesKm: [139, 119, 86], shape: "lumpy" }, "Psyche, rich in metal.", "May be the exposed core of a broken world; no spacecraft has photographed it yet.", PROCEDURAL_NOTE),
+    { axesKm: [139, 119, 86], shape: "lumpy" }, "May be the exposed core of a broken world; no spacecraft has photographed it yet.", PROCEDURAL_NOTE),
   minor("eros", "433;", "Eros", "asteroid", 8.42, ["#6e5a45", "#dcc49c"],
     { number: "433", temp: ["−150 TO 100 °C", "NIGHT TO DAY"], madeOf: "STONY SILICATE ROCK", gravity: "0.006 M/S²", day: "5 H 16 MIN", year: "1.8 YEARS", found: "G. WITT · 1898" },
-    { axesKm: [17.2, 5.6, 5.6], shape: "peanut" }, "Eros, the first asteroid landed on.", "NEAR Shoemaker touched down here in 2001.", PROCEDURAL_NOTE),
+    { axesKm: [17.2, 5.6, 5.6], shape: "peanut" }, "NEAR Shoemaker touched down here in 2001.", PROCEDURAL_NOTE),
   minor("gaspra", "951;", "Gaspra", "asteroid", 6.1, ["#6b5c4b", "#dac9ad"],
     { number: "951", temp: ["ABOUT −90 °C", "MEAN"], madeOf: "STONY SILICATE ROCK", gravity: "0.002 M/S²", day: "7 H 2 MIN", year: "3.3 YEARS", found: "G. NEUJMIN · 1916" },
-    { axesKm: [9.1, 5.2, 4.4], shape: "lumpy" }, "Gaspra, the first asteroid seen up close.", "Galileo flew past in 1991.", PROCEDURAL_NOTE),
+    { axesKm: [9.1, 5.2, 4.4], shape: "lumpy" }, "Galileo flew past in 1991.", PROCEDURAL_NOTE),
   minor("ida", "243;", "Ida", "asteroid", 16, ["#6a5d4f", "#ddd0b7"],
     { number: "243", temp: ["ABOUT −110 °C", "MEAN"], madeOf: "STONY SILICATE ROCK", gravity: "0.01 M/S²", day: "4 H 38 MIN", year: "4.8 YEARS", found: "J. PALISA · 1884" },
-    { axesKm: [29.9, 12.7, 9.3], shape: "peanut" }, "Ida, with a moon of its own.", "Its tiny moon Dactyl was the first asteroid moon found.", PROCEDURAL_NOTE),
+    { axesKm: [29.9, 12.7, 9.3], shape: "peanut" }, "Its tiny moon Dactyl was the first asteroid moon found.", PROCEDURAL_NOTE),
   minor("bennu", "101955;", "Bennu", "asteroid", 0.245, ["#4d4945", "#cbc4b6"],
     { number: "101955", temp: ["−73 TO 116 °C", "NIGHT TO DAY"], madeOf: "CARBON-RICH RUBBLE PILE", gravity: "0.00006 M/S²", day: "4 H 18 MIN", year: "1.2 YEARS", found: "LINEAR · 1999" },
-    { axesKm: [0.283, 0.268, 0.254], shape: "top" }, "Bennu, a rubble pile.", "OSIRIS-REx brought a sample home in 2023.", PROCEDURAL_NOTE),
+    { axesKm: [0.283, 0.268, 0.254], shape: "top" }, "OSIRIS-REx brought a sample home in 2023.", PROCEDURAL_NOTE),
   minor("ryugu", "162173;", "Ryugu", "asteroid", 0.448, ["#4b4744", "#c6bfb3"],
     { number: "162173", temp: ["ABOUT 20 °C", "DAYSIDE"], madeOf: "CARBON-RICH RUBBLE PILE", gravity: "0.0001 M/S²", day: "7 H 38 MIN", year: "1.3 YEARS", found: "LINEAR · 1999" },
-    { axesKm: [0.502, 0.502, 0.438], shape: "top" }, "Ryugu, a spinning top.", "Hayabusa2 returned samples in 2020.", PROCEDURAL_NOTE),
+    { axesKm: [0.502, 0.502, 0.438], shape: "top" }, "Hayabusa2 returned samples in 2020.", PROCEDURAL_NOTE),
 
   craft("iss", "-125544", "International Space Station", "ISS", "earth", 109, 1998, "EARTH ORBIT",
     { kind: "CREWED STATION", mission: "CREWED ORBITAL LABORATORY", operator: "NASA · ROSCOSMOS · ESA · JAXA · CSA", launched: ["20 NOV 1998", "FIRST MODULE, ZARYA"], where: "ABOUT 400 KM ABOVE EARTH, 16 ORBITS A DAY", status: "CREWED WITHOUT A BREAK SINCE 2 NOV 2000" },
-    "the space station, people aboard.", "The largest thing people have built in space, about the size of a football field."),
+    "The largest thing people have built in space, about the size of a football field."),
   craft("jwst", "-170", "James Webb Space Telescope", "WEBB", "earth", 21.197, 2021, "L2 OBSERVATORY",
     { kind: "SPACE TELESCOPE", mission: "INFRARED OBSERVATORY", operator: "NASA · ESA · CSA", launched: ["25 DEC 2021"], where: "SUN–EARTH L2, 1.5 MILLION KM FROM EARTH", status: "OBSERVING SINCE JULY 2022" },
-    "Webb, sunshield toward the Sun.", "A 6.5-metre gold mirror kept colder than −220 °C behind a five-layer sunshield."),
+    "A 6.5-metre gold mirror kept colder than −220 °C behind a five-layer sunshield."),
   craft("mro", "-74", "Mars Reconnaissance Orbiter", "MRO", "mars", 13.6, 2005, "MARS ORBITER",
     { kind: "ORBITER", mission: "MARS IMAGING AND RELAY", operator: "NASA / JPL", launched: ["12 AUG 2005"], where: "LOW POLAR ORBIT OF MARS", status: "ACTIVE" },
-    "Mars Reconnaissance Orbiter, still imaging.", "Its HiRISE camera can make out objects a metre across."),
+    "Its HiRISE camera can make out objects a metre across."),
   craft("odyssey", "-53", "Mars Odyssey", "MARS ODYSSEY", "mars", 8.267, 2001, "MARS ORBITER",
     { kind: "ORBITER", mission: "MARS MAPPING AND RELAY", operator: "NASA / JPL", launched: ["7 APR 2001"], where: "POLAR ORBIT OF MARS, ABOUT 400 KM UP", status: "THE LONGEST-SERVING SPACECRAFT AT MARS" },
-    "Mars Odyssey, the longest-serving at Mars.", "Orbiting Mars since 2001 and relaying for the rovers below."),
+    "Orbiting Mars since 2001 and relaying for the rovers below."),
   craft("juno", "-61", "Juno", "JUNO", "jupiter", 20, 2011, "JUPITER ORBITER",
     { kind: "ORBITER", mission: "JUPITER'S INTERIOR AND MAGNETIC FIELD", operator: "NASA / JPL", launched: ["5 AUG 2011"], where: "LONG POLAR LOOPS ROUND JUPITER", status: "AT JUPITER SINCE 4 JULY 2016" },
-    "Juno, looping over Jupiter's poles.", "A solar-powered orbiter mapping Jupiter's interior from three long wings."),
+    "A solar-powered orbiter mapping Jupiter's interior from three long wings."),
   craft("dawn", "-203", "Dawn", "DAWN", "ceres", 19.7, 2007, "CERES ORBIT",
     { kind: "ORBITER", mission: "VESTA AND CERES", operator: "NASA / JPL", launched: ["27 SEP 2007"], where: "A STABLE ORBIT ROUND CERES", status: "SILENT SINCE NOV 2018 · OUT OF FUEL" },
-    "Dawn, silent now, still circling Ceres.", "The only spacecraft to orbit two worlds beyond Earth, now parked for decades."),
+    "The only spacecraft to orbit two worlds beyond Earth, now parked for decades."),
   craft("juice", "-28", "Juice", "JUICE", "sun", 27.1, 2023, "BOUND FOR JUPITER",
     { kind: "PROBE", mission: "JUPITER ICY MOONS EXPLORER", operator: "ESA", launched: ["14 APR 2023"], where: "CRUISING THE INNER SYSTEM", status: "ARRIVES AT JUPITER IN 2031" },
-    "Juice, on its long way to Jupiter.", "Bound for Ganymede after a string of gravity-assist flybys."),
+    "Bound for Ganymede after a string of gravity-assist flybys."),
   craft("psyche-craft", "-255", "Psyche spacecraft", "PSYCHE", "sun", 24.76, 2023, "TO (16) PSYCHE",
     { kind: "PROBE", mission: "THE METAL ASTEROID PSYCHE", operator: "NASA / JPL", launched: ["13 OCT 2023"], where: "BETWEEN MARS AND THE ASTEROID BELT", status: "CRUISING ON ION DRIVE · ARRIVES 2029" },
-    "the Psyche probe, under ion drive.", "Flying to the metal asteroid on electric thrusters."),
+    "Flying to the metal asteroid on electric thrusters."),
   craft("stereo-a", "-234", "STEREO-A", "STEREO-A", "sun", 6.47, 2006, "SOLAR OBSERVATORY",
     { kind: "SOLAR OBSERVATORY", mission: "THE SUN IN STEREO", operator: "NASA", launched: ["26 OCT 2006"], where: "AN ORBIT ROUND THE SUN NEAR EARTH'S", status: "ACTIVE" },
-    "STEREO-A, watching the Sun from the side.", "Sees solar storms before they turn toward Earth."),
+    "Sees solar storms before they turn toward Earth."),
   craft("new-horizons", "-98", "New Horizons", "NEW HORIZONS", "sun", 2.7, 2006, "KUIPER BELT",
     { kind: "PROBE", mission: "PLUTO AND THE KUIPER BELT", operator: "NASA / JHUAPL", launched: ["19 JAN 2006"], where: "THE KUIPER BELT, HEADING OUT", status: "ACTIVE" },
-    "New Horizons, still heading out.", "Flew past Pluto in 2015 and Arrokoth in 2019."),
-  craft("voyager-1", "-31", "Voyager 1", "VOYAGER 1", "sun", 16.41, 1977, "INTERSTELLAR",
-    { kind: "PROBE", mission: "JUPITER, SATURN, THEN THE STARS", operator: "NASA / JPL", launched: ["5 SEP 1977"], where: "INTERSTELLAR SPACE", status: "STILL TALKING TO EARTH" },
-    "Voyager 1. the farthest thing we've made.", "Crossed into interstellar space in 2012."),
+    "Flew past Pluto in 2015 and Arrokoth in 2019."),
   craft("voyager-2", "-32", "Voyager 2", "VOYAGER 2", "sun", 16.41, 1977, "INTERSTELLAR",
     { kind: "PROBE", mission: "THE GRAND TOUR OF THE GIANT PLANETS", operator: "NASA / JPL", launched: ["20 AUG 1977"], where: "INTERSTELLAR SPACE", status: "STILL TALKING TO EARTH" },
-    "Voyager 2, the only visitor to Uranus and Neptune.", "Crossed into interstellar space in 2018."),
+    "Crossed into interstellar space in 2018."),
+
+  relic("relay-ceres", "x-relay-c", "Relay Node C-4", "satellite", "ceres", 14, "NEWS RELAY",
+    { kind: "RELAY SATELLITE", purpose: "NEWS AND DIPLOMATIC RELAY", where: "CERES ORBIT", built: "2025" },
+    "A node from a news and diplomatic network that served the stations in the asteroid belt; the dish is cracked and the power cells are long dead."),
+  relic("archive-mercury", "x-buoy-m", "Archive Buoy M-1", "satellite", "mercury", 6, "DATA ARCHIVE BUOY",
+    { kind: "DATA BUOY", purpose: "HARDENED RESEARCH ARCHIVE", where: "MERCURY ORBIT", built: "2026" },
+    "A heavily shielded buoy in orbit round Mercury, built to keep copies of research archives safe from anything."),
+  relic("relay-neptune", "x-relay-n", "Listening Relay N-9", "satellite", "neptune", 22, "LISTENING RELAY",
+    { kind: "RELAY SATELLITE", purpose: "LONG-BASELINE LISTENING POST", where: "NEPTUNE ORBIT", built: "2025" },
+    "A listening post at the edge of the planets; it recorded traffic from the inner system until 2027."),
+  relic("drones-jupiter", "x-drones-j", "Drone Wreckage J-3", "spacecraft", "jupiter", 9, "DRONE WRECKAGE",
+    { kind: "STRIKE DRONE · WRECKED", purpose: "AUTONOMOUS STRIKE CLUSTER", where: "JUPITER ORBIT", built: "2026" },
+    "Pieces of an autonomous strike drone, scattered along a wide orbit round Jupiter."),
+  relic("capsule-titan", "x-capsule-t", "Continuity Capsule L-2", "satellite", "saturn", 5, "DATA CAPSULE",
+    { kind: "SEALED DATA CAPSULE", purpose: "CONTINUITY-OF-GOVERNMENT RECORDS", where: "NEAR TITAN", built: "2027" },
+    "A sealed data capsule launched from a lunar relay station toward the outer planets; it ended its flight beside Titan."),
+  relic("probe-uranus", "x-probe-u", "Survey Probe U-3", "satellite", "uranus", 7, "SURVEY PROBE",
+    { kind: "DEEP-SPACE SURVEY PROBE", purpose: "MIRRORED RESEARCH ARCHIVE", where: "URANUS ORBIT", built: "2025" },
+    "A survey probe parked round Uranus, still carrying a mirror of research archives from late 2025."),
+
+  // the two story ships (stand-in shapes until their models arrive)
+  relic("derelict-1", "x-ship-1", "Expedition Vessel Kestrel", "spacecraft", "sun", 46, "ABANDONED VESSEL",
+    { kind: "UNCREWED EXPEDITION VESSEL", purpose: "VOYAGER ONE INVESTIGATION", where: "OUTER SOLAR SYSTEM", built: "2027" },
+    "An uncrewed ship launched in 2027 to leave the Solar System; struck in the asteroid belt, it drifts out near the orbit of Pluto."),
+  relic("derelict-2", "x-ship-2", "Private Vessel Halcyon", "spacecraft", "earth", 120, "EVACUATION VESSEL",
+    { kind: "PRIVATE EVACUATION VESSEL", purpose: "LONG-DURATION SURVIVAL", where: "EARTH ORBIT", built: "2027" },
+    "A private evacuation ship in Earth orbit, its power almost gone."),
 ];
 
-export const CATEGORIES: { id: string; title: string; kinds: Kind[]; slots: number }[] = [
-  { id: "planets", title: "THE SUN & PLANETS", kinds: ["star", "planet"], slots: 9 },
-  { id: "moons", title: "MOONS", kinds: ["moon"], slots: 22 },
-  { id: "minor", title: "DWARF PLANETS & ASTEROIDS", kinds: ["dwarf", "asteroid"], slots: 11 },
-  { id: "craft", title: "VEHICLES", kinds: ["spacecraft", "satellite"], slots: 12 },
+/** The story's props: every place the record was found (the ISS among them) and both ships. */
+export const PROP_IDS = ["probe-uranus", "relay-ceres", "archive-mercury", "relay-neptune", "drones-jupiter", "capsule-titan", "iss", "derelict-1", "derelict-2"];
+const isProp = (b: BodyDef) => PROP_IDS.includes(b.id);
+
+export type Category = { id: string; title: string; slots: number; has: (b: BodyDef) => boolean };
+export const CATEGORIES: Category[] = [
+  { id: "planets", title: "THE SUN & PLANETS", slots: 9, has: (b) => b.kind === "star" || b.kind === "planet" },
+  { id: "moons", title: "MOONS", slots: 22, has: (b) => b.kind === "moon" },
+  { id: "minor", title: "DWARF PLANETS & ASTEROIDS", slots: 11, has: (b) => b.kind === "dwarf" || b.kind === "asteroid" },
+  { id: "craft", title: "VEHICLES", slots: 10, has: (b) => (b.kind === "spacecraft" || b.kind === "satellite") && !isProp(b) },
+  { id: "props", title: "PROPS · SIGNAL SOURCES & VESSELS", slots: PROP_IDS.length, has: isProp },
 ];
 
 /** Rings: radius km, width km, visual weight; Saturn uses broad bands. Physical radii from planetary ring tables. */
@@ -565,6 +614,41 @@ export function kepler(r0: Vec, v0: Vec, mu: number, dt: number): Vec {
 // ---------- ephemeris ----------
 
 type Seed = { r: Vec; v: Vec; parent: string; mu: number };
+
+// Relic starting states (same epoch and frame as the table above): a circular orbit round the
+// parent, or riding alongside a moon.
+type V3 = [number, number, number];
+const vAdd = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+const vCross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const vUnit = (a: V3): V3 => {
+  const l = Math.hypot(...a);
+  return [a[0] / l, a[1] / l, a[2] / l];
+};
+function circularAbout(parentJpl: string, mu: number, rKm: number, phase: number): [V3, V3] {
+  const [p, v] = STATE[parentJpl];
+  const n = vUnit(vCross(p, v));
+  const x = vUnit(p), y = vCross(n, x);
+  const u = vAdd([x[0] * Math.cos(phase), x[1] * Math.cos(phase), x[2] * Math.cos(phase)], y, Math.sin(phase));
+  return [vAdd(p, u, rKm), vAdd(v, vCross(n, u), Math.sqrt(mu / rKm))];
+}
+const alongside = (hostJpl: string, offsetKm: V3): [V3, V3] => [vAdd(STATE[hostJpl][0], offsetKm), STATE[hostJpl][1]];
+STATE["x-drones-j"] = circularAbout("599", GM.jupiter, 1_420_000, 2.1);
+STATE["x-capsule-t"] = alongside("606", [26_000, -18_000, 9_000]);
+STATE["x-relay-n"] = circularAbout("899", GM.neptune, 640_000, 4.0);
+STATE["x-relay-c"] = circularAbout("1;", GM.ceres, 7_500, 1.2);
+STATE["x-buoy-m"] = circularAbout("199", GM.mercury, 9_000, 0.6);
+STATE["x-probe-u"] = circularAbout("799", GM.uranus, 300_000, 1.4);
+/** a circular orbit round the Sun in a planet's orbital plane, `turn` radians on from it */
+function circularSun(rKm: number, refJpl: string, turn: number): [V3, V3] {
+  const [p, v] = STATE[refJpl];
+  const n = vUnit(vCross(p, v));
+  const x = vUnit(p), y = vCross(n, x);
+  const u = vAdd([x[0] * Math.cos(turn), x[1] * Math.cos(turn), x[2] * Math.cos(turn)], y, Math.sin(turn));
+  return [[u[0] * rKm, u[1] * rKm, u[2] * rKm], vCross(n, u).map((k) => k * Math.sqrt(GM.sun / rKm)) as V3];
+}
+// out at Pluto's distance on Pluto's orbital plane, a few degrees (~2 AU) ahead of it
+STATE["x-ship-1"] = circularSun(Math.hypot(...STATE["999"][0]), "999", 0.06);
+STATE["x-ship-2"] = circularAbout("399", GM.earth, 48_000, 0.8);
 
 const seeds: Map<string, Seed> = (() => {
   const out = new Map<string, Seed>();

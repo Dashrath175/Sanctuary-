@@ -32,10 +32,10 @@ const SITE_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "SANCTUARY",
-  description: "Fly the real solar system in your browser: scan worlds, moons and spacecraft at their true positions and build your own survey records.",
+  description: "A voiced story game in the real solar system: wake near Uranus, fly home through true positions and distances, and find out why nobody answers.",
   openGraph: {
     title: "SANCTUARY",
-    description: "Fly the real solar system in your browser: scan worlds, moons and spacecraft at their true positions and build your own survey records.",
+    description: "A voiced story game in the real solar system: wake near Uranus, fly home through true positions and distances, and find out why nobody answers.",
     type: "website",
   },
 };

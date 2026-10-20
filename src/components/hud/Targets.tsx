@@ -13,7 +13,7 @@ import type { Callout, NetLink, SunReading } from "../scene/engine";
 const POOL = 6;
 
 export default function Targets() {
-  const { engine, pick } = useObservatory();
+  const { engine, goTo } = useObservatory();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const labels = useRef<(HTMLButtonElement | null)[]>([]);
   const ids = useRef<string[]>([]);
@@ -170,7 +170,7 @@ export default function Targets() {
             ref={(el) => {
               labels.current[i] = el;
             }}
-            onClick={() => ids.current[i] && pick(ids.current[i])}
+            onClick={() => ids.current[i] && goTo(ids.current[i])}
             className="target-label opacity-0"
             data-known="false"
           >

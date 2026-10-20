@@ -124,16 +124,63 @@ export const grainShader = {
     uNoise: { value: 0.025 },
     uDither: { value: 0.12 },
     uVignette: { value: 0.55 },
+    uInterfere: { value: 0 },
+    uSeed: { value: 0 },
+    uTiles: { value: 0 },
+    uTileSeed: { value: 0 },
   },
   vertexShader: pass,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uTime, uNoise, uDither, uVignette;
+    uniform float uTime, uNoise, uDither, uVignette, uInterfere, uSeed, uTiles, uTileSeed;
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
       vec2 c = vUv - 0.5;
-      vec3 col = texture2D(tDiffuse, vUv).rgb;
+      vec3 col;
+      if (uInterfere > 0.002) {
+        // sensor interference: a few torn rows, a faint colour split, brief dips and static;
+        // all of it scales with uInterfere
+        float k = uInterfere;
+        float tick = uSeed;
+        float row = floor(vUv.y * (40.0 + 60.0 * fract(uSeed * 0.137)));
+        float tear = step(1.0 - 0.16 * k, hash(vec2(row, tick)));
+        vec2 uv = vUv + vec2((hash(vec2(row + 3.7, tick)) - 0.5) * 0.03 * k * tear, 0.0);
+        col = texture2D(tDiffuse, uv).rgb;
+        col.r = texture2D(tDiffuse, uv + vec2(0.0025 * k, 0.0)).r;
+        float dip = step(1.0 - 0.2 * k, hash(vec2(tick, 5.1)));
+        col *= 1.0 - dip * (0.12 + 0.18 * k);
+        col += (hash(gl_FragCoord.xy * 0.5 + tick) - 0.5) * 0.07 * k;
+      } else {
+        col = texture2D(tDiffuse, vUv).rgb;
+      }
+      if (uTiles > 0.002) {
+        // the visor is a mosaic of panels (4 x 4): booting, in a hard stop or a heavy burst, panels
+        // drop out, slip sideways, split their colours, fill with static or flash, each on its own
+        // clock; never more than about two in five go dark, so the view is torn, not blacked out
+        vec2 grid = vec2(4.0, 4.0);
+        vec2 cell = floor(vUv * grid);
+        float h = hash(cell + floor(uTileSeed) * 1.37);
+        float h2 = hash(cell * 1.7 + floor(uTileSeed * 1.9) + 4.2);
+        float h3 = hash(cell * 2.3 + floor(uTileSeed * 2.7) + 9.1);
+        float gone = step(1.0 - uTiles * 0.4, h);
+        float slip = step(1.0 - uTiles * 0.7, h2);
+        // rows inside a slipped panel tear on their own
+        float line = floor(vUv.y * 140.0);
+        float jag = (hash(vec2(line, floor(uTileSeed * 3.1))) - 0.5) * 0.02 * uTiles * step(0.6, h3);
+        vec2 suv = vUv + vec2((h2 - 0.5) * 0.09 * uTiles * slip + jag * slip, (h - 0.5) * 0.03 * uTiles * slip);
+        float split = 0.006 * uTiles * (0.5 + h3);
+        vec3 slipped = vec3(texture2D(tDiffuse, suv + vec2(split, 0.0)).r, texture2D(tDiffuse, suv).g, texture2D(tDiffuse, suv - vec2(split, 0.0)).b);
+        col = mix(col, slipped, slip);
+        // static in a few panels
+        float noisy = step(1.0 - uTiles * 0.22, h3) * (1.0 - gone);
+        float snow = hash(gl_FragCoord.xy * 0.37 + uTileSeed);
+        col = mix(col, vec3(snow) * 0.45 + col * 0.35, noisy * 0.75);
+        col *= 1.0 - gone * (0.55 + 0.4 * hash(vec2(h, uTileSeed)));
+        vec2 f = abs(fract(vUv * grid) - 0.5);
+        col = mix(col, col * 0.4 + vec3(0.02, 0.05, 0.04), step(0.494, max(f.x, f.y)) * min(1.0, uTiles * 1.3));
+        col += vec3(0.6, 0.9, 0.8) * step(1.0 - uTiles * 0.1, h2) * 0.22;
+      }
       col *= 1.0 - smoothstep(0.16, 0.6, dot(c, c)) * uVignette;
       // zero-mean grain, a little stronger in the lit parts of the frame
       float n = hash(gl_FragCoord.xy + fract(uTime * 7.31) * 113.0) - 0.5;

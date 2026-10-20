@@ -28,8 +28,12 @@ const MODEL: Record<string, string> = {
   dawn: "dawn",
   "stereo-a": "stereo",
   "new-horizons": "new-horizons",
-  "voyager-1": "voyager",
   "voyager-2": "voyager",
+  // the story ships (Sketchfab, CC BY 4.0: see README)
+  "derelict-1": "kestrel",
+  "derelict-2": "halcyon",
+  // our own ship, filmed in the cutscenes
+  vessel: "vessel",
 };
 
 /**
@@ -568,7 +572,103 @@ function psycheCraft(k: Kit) {
   k.box([0.6, 0.5, 0.5], [-0.75, 1.45, -0.5], [0, 0, 0], new THREE.Color(WHITE, WHITE, WHITE)); // multispectral imager
 }
 
-const BUILT: Record<string, (k: Kit) => void> = { juice, "psyche-craft": psycheCraft };
+// relics from the story: simple, slightly broken shapes
+const GREY = new THREE.Color(0.55, 0.56, 0.6);
+
+function commandRelay(k: Kit) {
+  k.box([2.4, 3, 2.4], [0, 0, 0]);
+  k.dish(2.6, 0.8, [0, 1.9, 0], [0.35, 0, 0.2]);
+  k.boom([1.2, 0, 0], [2.6, 0, 0], 0.08);
+  k.panel(5, 2, [5.1, 0, 0], [0, 0, 0], 5, 2);
+  // the other wing hangs off at an angle, half torn away
+  k.boom([-1.2, 0, 0], [-2.4, -0.3, 0.2], 0.08);
+  k.panel(3, 2, [-3.9, -0.9, 0.5], [0.5, 0.2, -0.6], 3, 2);
+}
+
+function archiveBuoy(k: Kit) {
+  k.cyl(1.1, 3.6, [0, 0, 0], [0, 0, 0], 12, GREY);
+  k.cyl(1.25, 0.3, [0, 1.85, 0], [0, 0, 0], 12);
+  k.dish(0.9, 0.3, [0, 2.2, 0]);
+  for (const a of [0, 2.1, 4.2]) k.boom([Math.cos(a) * 1.1, -1.2, Math.sin(a) * 1.1], [Math.cos(a) * 2.8, -2.2, Math.sin(a) * 2.8], 0.05);
+}
+
+function listeningRelay(k: Kit) {
+  k.box([3, 2.4, 3], [0, 0, 0]);
+  k.dish(5.5, 1.6, [0, 2.6, 0], [0.2, 0, 0]);
+  k.boom([0, 2.6, 0], [0, 6.4, 0.6], 0.07);
+  k.boom([0, -1.2, 0], [0, -8, 0], 0.05);
+  for (const s of [-1, 1]) {
+    k.boom([s * 1.5, 0, 0], [s * 3, 0, 0], 0.07);
+    k.panel(6, 2.4, [s * 6, 0, 0], [0, 0, 0], 6, 2);
+  }
+}
+
+function droneWreck(k: Kit) {
+  // the fuselage and one wing, with the rest drifting apart
+  k.box([0.9, 0.6, 5], [0, 0, 0], [0, 0, 0.15], GREY);
+  k.box([3.6, 0.08, 1.8], [1.8, 0, -0.6], [0, -0.35, 0.1], GREY);
+  k.box([2.8, 0.08, 1.5], [-3.4, 0.8, 1.2], [0.4, 0.5, -0.3], GREY);
+  k.cyl(0.35, 1.2, [0.2, -0.1, 3], [Math.PI / 2, 0, 0], 8);
+  k.box([0.7, 0.5, 1.4], [-1.6, -1.4, -3.2], [0.8, 0.3, 0.5], GREY);
+  k.box([0.4, 0.4, 0.6], [2.4, 1.6, 2.6], [0.3, 1.1, 0.2]);
+}
+
+function surveyProbe(k: Kit) {
+  k.cyl(1.0, 2.2, [0, 0, 0], [0, 0, 0], 12, GREY);
+  k.dish(3.2, 0.9, [0, 1.6, 0], [0.15, 0, 0]); // high-gain dish, knocked a little off true
+  k.boom([0, -1.1, 0], [0, -4.5, 0], 0.05); // magnetometer boom
+  for (const s of [-1, 1]) {
+    k.boom([s * 1.0, 0, 0], [s * 1.8, 0, 0], 0.06);
+    k.panel(3.4, 1.4, [s * 3.6, 0, 0], [0, 0, 0], 4, 2);
+  }
+}
+
+function medicalCapsule(k: Kit) {
+  k.cyl(1.3, 2.6, [0, 0, 0], [0, 0, 0], 16, new THREE.Color(WHITE, WHITE, WHITE));
+  k.cyl(0.7, 0.9, [0, 1.75, 0], [0, 0, 0], 12, GREY);
+  k.cyl(1.35, 0.25, [0, -1.4, 0], [0, 0, 0], 16);
+  for (const s of [-1, 1]) k.panel(1.6, 1, [s * 2.3, -0.4, 0], [0, 0, 0], 2, 1);
+}
+
+// Stand-ins for the two story ships; a model file in MODEL replaces either one.
+function expeditionShip(k: Kit) {
+  k.cyl(2.2, 26, [0, 0, 0], [Math.PI / 2, 0, 0], 16, GREY);
+  k.cyl(7, 1.6, [0, 0, -4], [Math.PI / 2, 0, 0], 24); // habitat ring
+  k.box([3.2, 3.2, 6], [0, 0, 14], [0, 0, 0], GREY); // command module
+  k.cyl(2.8, 3.2, [0, 0, -14.5], [Math.PI / 2, 0, 0], 12); // drive
+  k.dish(2.4, 0.7, [0, 3, 10], [-0.6, 0, 0]);
+  k.boom([2.2, 0, 4], [9, 0, 4], 0.12);
+  k.panel(8, 3, [13, 0, 4], [0, 0, 0], 6, 2);
+  // the far wing is torn off and the hull is split behind the ring
+  k.boom([-2.2, 0, 4], [-5, 1.5, 4.5], 0.12);
+  k.panel(4, 3, [-7.2, 2.4, 5.4], [0.6, 0.3, 0.9], 3, 2);
+  k.box([1.4, 4.6, 2.2], [1.6, 1.4, -7.5], [0.4, 0.2, 0.7], GREY);
+}
+
+function evacuationShip(k: Kit) {
+  k.cyl(7, 60, [0, 0, 0], [Math.PI / 2, 0, 0], 20, new THREE.Color(WHITE, WHITE, WHITE));
+  for (const z of [-16, 0, 16]) k.cyl(16, 3.5, [0, 0, z], [Math.PI / 2, 0, 0], 28); // accommodation rings
+  k.cyl(9, 8, [0, 0, -34], [Math.PI / 2, 0, 0], 16, GREY); // drive section
+  k.box([9, 7, 12], [0, 0, 34], [0, 0, 0], new THREE.Color(WHITE, WHITE, WHITE)); // bridge
+  for (const s of [-1, 1]) {
+    k.boom([s * 7, 0, -24], [s * 18, 0, -24], 0.3);
+    k.panel(22, 7, [s * 30, 0, -24], [0, 0, 0], 8, 3);
+  }
+  k.dish(4.5, 1.4, [0, 9, 26], [-0.4, 0, 0]);
+}
+
+const BUILT: Record<string, (k: Kit) => void> = {
+  "derelict-1": expeditionShip,
+  "derelict-2": evacuationShip,
+  juice,
+  "psyche-craft": psycheCraft,
+  "relay-ceres": commandRelay,
+  "archive-mercury": archiveBuoy,
+  "relay-neptune": listeningRelay,
+  "drones-jupiter": droneWreck,
+  "capsule-titan": medicalCapsule,
+  "probe-uranus": surveyProbe,
+};
 
 function buildKit(body: BodyDef, look: CraftLight) {
   const k = new Kit();

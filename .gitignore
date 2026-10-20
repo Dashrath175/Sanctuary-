@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# voice auditions (local only)
+/voice-samples/
+/.voice-work/

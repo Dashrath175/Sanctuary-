@@ -1,8 +1,11 @@
 "use client";
 
-// Procedural sound: everything is synthesised with WebAudio, no sample files.
+// Procedural sound: the score, travel rumble and effects are synthesised with WebAudio; only
+// the voice lines are files.
 
-type Bus = { ctx: AudioContext; master: GainNode; travel: GainNode; travelFilter: BiquadFilterNode; hum: GainNode };
+import { preloadSong, setMood, setScoreState, type ScoreState, startScore, type Mood } from "./music";
+
+type Bus = { ctx: AudioContext; master: GainNode; travel: GainNode; travelFilter: BiquadFilterNode; hum: GainNode; static: GainNode; voice: GainNode; radio: GainNode };
 
 let bus: Bus | null = null;
 let enabled = true;
@@ -31,36 +34,18 @@ function ensure(): Bus | null {
   master.gain.value = level();
   master.connect(ctx.destination);
 
-  // Ambience: two detuned low drones through a slow-moving lowpass.
-  const drone = ctx.createGain();
-  drone.gain.value = 0.08;
-  const lp = ctx.createBiquadFilter();
-  lp.type = "lowpass";
-  lp.frequency.value = 420;
-  drone.connect(lp).connect(master);
-  for (const f of [55, 82.4, 110.3]) {
-    const o = ctx.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.value = f;
-    o.detune.value = (Math.random() - 0.5) * 14;
-    o.connect(drone);
-    o.start();
-  }
-  const lfo = ctx.createOscillator();
-  const lfoGain = ctx.createGain();
-  lfo.frequency.value = 0.05;
-  lfoGain.gain.value = 180;
-  lfo.connect(lfoGain).connect(lp.frequency);
-  lfo.start();
+  // The background score (src/lib/music.ts): silent until the game starts.
+  startScore(ctx, master, noiseBuffer(ctx, 4));
 
   // Travel: filtered noise whose level follows speed.
   const src = ctx.createBufferSource();
   src.buffer = noiseBuffer(ctx);
   src.loop = true;
   const travelFilter = ctx.createBiquadFilter();
-  travelFilter.type = "bandpass";
-  travelFilter.frequency.value = 300;
-  travelFilter.Q.value = 0.7;
+  // a low rumble that opens a little with speed, never a hiss
+  travelFilter.type = "lowpass";
+  travelFilter.frequency.value = 160;
+  travelFilter.Q.value = 0.5;
   const travel = ctx.createGain();
   travel.gain.value = 0;
   src.connect(travelFilter).connect(travel).connect(master);
@@ -78,11 +63,66 @@ function ensure(): Bus | null {
     o.start();
   }
 
-  bus = { ctx, master, travel, travelFilter, hum };
+  // Sensor interference: sparse crackle over a thin hiss, silent until set.
+  const crackle = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
+  const cd = crackle.getChannelData(0);
+  for (let i = 0; i < cd.length; i++) cd[i] = (Math.random() - 0.5) * 0.12 + (Math.random() < 0.0009 ? (Math.random() - 0.5) * 2.4 : 0);
+  const staticSrc = ctx.createBufferSource();
+  staticSrc.buffer = crackle;
+  staticSrc.loop = true;
+  const staticFilter = ctx.createBiquadFilter();
+  staticFilter.type = "bandpass";
+  staticFilter.frequency.value = 2200;
+  staticFilter.Q.value = 0.6;
+  const staticGain = ctx.createGain();
+  staticGain.gain.value = 0;
+  staticSrc.connect(staticFilter).connect(staticGain).connect(master);
+  staticSrc.start();
+
+  // A recovered recording's radio: a narrow band of hiss and crackle that runs under the whole
+  // playback, the gaps between lines included, so the transmission never drops to clean silence.
+  const radioBuf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+  const rd = radioBuf.getChannelData(0);
+  let wob = 0;
+  for (let i = 0; i < rd.length; i++) {
+    wob += (Math.random() - 0.5) * 0.002;
+    wob *= 0.999;
+    rd[i] = (Math.random() - 0.5) * (0.22 + wob * 8) + (Math.random() < 0.0016 ? (Math.random() - 0.5) * 1.8 : 0);
+  }
+  const radioSrc = ctx.createBufferSource();
+  radioSrc.buffer = radioBuf;
+  radioSrc.loop = true;
+  const radioBand = ctx.createBiquadFilter();
+  radioBand.type = "bandpass";
+  radioBand.frequency.value = 1600;
+  radioBand.Q.value = 0.45;
+  const radioGain = ctx.createGain();
+  radioGain.gain.value = 0;
+  radioSrc.connect(radioBand).connect(radioGain).connect(master);
+  radioSrc.start();
+
+  // Voices: straight to the master, a little above the ambience.
+  const voice = ctx.createGain();
+  voice.gain.value = 1.25;
+  voice.connect(master);
+
+  bus = { ctx, master, travel, travelFilter, hum, static: staticGain, voice, radio: radioGain };
   return bus;
 }
 
 export const audio = {
+  /** Load the recorded score behind the loading screen. */
+  preloadScore() {
+    return preloadSong(ensure()?.ctx ?? null);
+  },
+  /** the shared context (created on first use; it may still be suspended) */
+  context() {
+    return ensure()?.ctx ?? null;
+  },
+  /** where voice lines play */
+  voiceOut() {
+    return ensure()?.voice ?? null;
+  },
   unlock() {
     const b = ensure();
     if (b && b.ctx.state === "suspended") void b.ctx.resume();
@@ -111,8 +151,44 @@ export const audio = {
   setTravel(level: number) {
     if (!bus) return;
     const t = bus.ctx.currentTime;
-    bus.travel.gain.setTargetAtTime(Math.min(0.5, level * 0.5), t, 0.25);
-    bus.travelFilter.frequency.setTargetAtTime(240 + level * 1400, t, 0.25);
+    bus.travel.gain.setTargetAtTime(Math.min(0.38, level * 0.38), t, 0.4);
+    bus.travelFilter.frequency.setTargetAtTime(140 + level * 300, t, 0.4);
+  },
+  /** the score's mood for the chapter */
+  mood(m: Mood) {
+    if (ensure()) setMood(m);
+  },
+  /** the score low under play, or faded out for a major scene */
+  /** the score's place in the mix: on/off, under dialogue, at rest, records open */
+  music(st: ScoreState) {
+    if (ensure()) setScoreState(st);
+  },
+  /** A recording's radio bed: on (0..1) for the whole playback, off when it ends. */
+  radio(level: number) {
+    if (!bus) return;
+    bus.radio.gain.setTargetAtTime(level * 0.16, bus.ctx.currentTime, level > 0 ? 0.25 : 0.6);
+  },
+  /** A burst of interference in the radio bed where a recording breaks up (k 0..1). */
+  radioBurst(k: number) {
+    if (!bus) return;
+    const g = bus.radio.gain, t = bus.ctx.currentTime;
+    const base = g.value;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(base, t);
+    // a few uneven surges and drop-outs, then back to the bed
+    let at = t;
+    for (let i = 0; i < 3 + Math.round(k * 4); i++) {
+      at += 0.08 + Math.random() * 0.22;
+      g.linearRampToValueAtTime((0.25 + Math.random() * 0.5) * k, at);
+      at += 0.05 + Math.random() * 0.12;
+      g.linearRampToValueAtTime(base * (0.3 + Math.random() * 0.7), at);
+    }
+    g.setTargetAtTime(0.16, at, 0.4);
+  },
+  /** 0..1 sensor interference (follows the screen flicker). */
+  setStatic(level: number) {
+    if (!bus) return;
+    bus.static.gain.setTargetAtTime(Math.min(0.5, level * 0.5), bus.ctx.currentTime, 0.12);
   },
   /** 0..1 autopilot intensity: a low hum that swells under the travel noise. */
   setDrive(level: number) {
@@ -149,6 +225,53 @@ export const audio = {
     o.connect(og).connect(b.master);
     o.start(t);
     o.stop(t + 0.65);
+  },
+  /** A hard stop: a deep thud and a crunch, as heavy as the jolt (0..1); a hard one makes the frame groan. */
+  jolt(k: number) {
+    const b = bus;
+    if (!b || !enabled) return;
+    const t = b.ctx.currentTime;
+    const o = b.ctx.createOscillator();
+    const og = b.ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(70 + 30 * k, t);
+    o.frequency.exponentialRampToValueAtTime(24, t + 0.35 + 0.6 * k);
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.12 + 0.5 * k, t + 0.012);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.45 + 0.75 * k);
+    o.connect(og).connect(b.master);
+    o.start(t);
+    o.stop(t + 1.3);
+    const src = b.ctx.createBufferSource();
+    src.buffer = noiseBuffer(b.ctx, 2);
+    const f = b.ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(400 + 1600 * k, t);
+    f.frequency.exponentialRampToValueAtTime(120, t + 0.5 + 0.6 * k);
+    const g = b.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05 + 0.4 * k, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4 + 0.7 * k);
+    src.connect(f).connect(g).connect(b.master);
+    src.start(t);
+    src.stop(t + 1.3);
+    if (k > 0.5) {
+      const m = b.ctx.createOscillator();
+      const mf = b.ctx.createBiquadFilter();
+      const mg = b.ctx.createGain();
+      m.type = "sawtooth";
+      m.frequency.setValueAtTime(150, t + 0.08);
+      m.frequency.exponentialRampToValueAtTime(70, t + 0.9);
+      mf.type = "bandpass";
+      mf.frequency.value = 600;
+      mf.Q.value = 3;
+      mg.gain.setValueAtTime(0.0001, t + 0.08);
+      mg.gain.exponentialRampToValueAtTime(0.03 * k, t + 0.15);
+      mg.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+      m.connect(mf).connect(mg).connect(b.master);
+      m.start(t + 0.08);
+      m.stop(t + 1.05);
+    }
   },
   /** Arrival: the rush falls away and two soft tones land. */
   arrive() {

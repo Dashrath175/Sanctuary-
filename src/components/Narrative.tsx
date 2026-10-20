@@ -1,21 +1,24 @@
 "use client";
 
-import { useUI } from "@/lib/store";
-import { CHAR_MS, SPEAKER } from "@/lib/script";
+import { store, useUI } from "@/lib/store";
+import { CHAR_MS, SPEAKERS } from "@/lib/script";
 import { useObservatory } from "./Observatory";
 import { SoundToggle } from "./hud/Hud";
 import { Credit } from "./icons";
+import { SignalTrace } from "./SignalTrace";
 
-// Subtitles (letter-by-letter inside word boxes), the CONTINUE prompt and SKIP OPENING.
+// Subtitles (letter-by-letter inside word boxes), a recording's trace, CONTINUE and SKIP OPENING.
 export default function Narrative() {
   const story = useUI((s) => s.story);
   const sub = useUI((s) => s.subtitle);
   const { advance, skip } = useObservatory();
+  const playback = useUI((s) => s.playback);
   const opening = story === "waking";
   const canSkip = story === "waking" || story === "awaiting-scan" || story === "contact";
 
   return (
     <section id="narrative" className="pointer-events-none absolute inset-0 z-10">
+      {playback && <Playback heading={playback.heading} torn={playback.torn} />}
       {sub && (
         <div
           id="subtitle-box"
@@ -24,10 +27,10 @@ export default function Narrative() {
           aria-atomic="true"
           className="absolute bottom-[calc(env(safe-area-inset-bottom)+138px)] left-1/2 w-[350px] -translate-x-1/2 text-center font-saira md:bottom-[157px] md:w-[570px]"
         >
-          {sub.named && <span className="block text-[10px] leading-[15px] tracking-[1px] text-voice soft">{SPEAKER}</span>}
-          <p key={sub.key} className={`${sub.named ? "mt-[5px] md:mt-[7px]" : ""} text-[14.5px] leading-[21px] tracking-[0.24px] text-voice soft md:text-[16.065px] md:leading-[24.1px]`}>
+          {sub.who && <span className={`block text-[10px] leading-[15px] tracking-[1px] soft ${sub.who === "player" ? "text-ink" : "text-voice"}`}>{SPEAKERS[sub.who]}</span>}
+          <p key={sub.key} className={`${sub.who ? "mt-[5px] md:mt-[7px]" : ""} text-[14.5px] leading-[21px] tracking-[0.24px] soft md:text-[16.065px] md:leading-[24.1px] ${sub.who === "player" ? "text-ink" : "text-voice"}`}>
             <span className="sr-only">{sub.text}</span>
-            <Typed text={sub.text} />
+            <Typed text={sub.text} charMs={sub.charMs ?? CHAR_MS} />
           </p>
           {opening && (
             <button
@@ -60,7 +63,21 @@ export default function Narrative() {
   );
 }
 
-function Typed({ text }: { text: string }) {
+/** a recording is talking while its line is the caption */
+const recTalking = () => store.get().subtitle?.who === "rec";
+
+/** A recovered recording: its heading and a live trace of the signal, torn where it breaks up. */
+function Playback({ heading, torn }: { heading: string; torn: boolean }) {
+  return (
+    <div id="playback" className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+92px)] w-[300px] -translate-x-1/2 text-center font-hud md:top-[120px] md:w-[420px]" aria-hidden>
+      <p className="text-[10px] leading-[14px] tracking-[1.4px] text-alert halo">{heading}</p>
+      <SignalTrace torn={torn} talking={recTalking} className="mt-[8px] h-[34px] w-full md:h-[44px]" />
+      <p className={`mt-[4px] text-[9.5px] tracking-[1.6px] halo ${torn ? "text-alert" : "text-dim"}`}>{torn ? "SIGNAL DEGRADED" : "PLAYBACK · CONTROLS LOCKED"}</p>
+    </div>
+  );
+}
+
+function Typed({ text, charMs }: { text: string; charMs: number }) {
   // each letter fades in after the previous one; words stay unbroken
   const nodes: React.ReactNode[] = [];
   let idx = 0;
@@ -79,7 +96,7 @@ function Typed({ text }: { text: string }) {
       const letters: React.ReactNode[] = [];
       for (let j = 0; j < w.length; j++) {
         letters.push(
-          <span key={j} style={{ animationDelay: `${(idx + j) * CHAR_MS}ms` }}>
+          <span key={j} style={{ animationDelay: `${Math.round((idx + j) * charMs)}ms` }}>
             {w[j]}
           </span>,
         );

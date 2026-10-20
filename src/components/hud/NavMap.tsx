@@ -30,14 +30,14 @@ function mapPos([x, y, z]: V3): V3 {
 const SMALL = "#f0b32a";
 const PROBE = "#ff9a6a";
 const isProbe = (k: Kind) => k === "spacecraft" || k === "satellite";
-const ORBITS = BODIES.filter((b) => b.kind === "planet" || b.kind === "dwarf" || b.kind === "asteroid" || (isProbe(b.kind) && b.parent === "sun")).map((b) => ({
+const ORBITS = BODIES.filter((b) => b.id !== "derelict-1" && (b.kind === "planet" || b.kind === "dwarf" || b.kind === "asteroid" || (isProbe(b.kind) && b.parent === "sun"))).map((b) => ({
   id: b.id,
   kind: b.kind,
   colour: b.kind === "planet" ? b.palette[1] : isProbe(b.kind) ? PROBE : SMALL,
   shape: orbitShape(b.id),
 }));
 /** probes on escape paths: draw the stretch flown since their last planetary flyby */
-const ESCAPES: Record<string, number> = { "voyager-1": Date.UTC(1981, 0, 1), "voyager-2": Date.UTC(1990, 0, 1), "new-horizons": Date.UTC(2007, 6, 1) };
+const ESCAPES: Record<string, number> = { "voyager-2": Date.UTC(1990, 0, 1), "new-horizons": Date.UTC(2007, 6, 1) };
 const BELT: V3[] = (() => {
   let s = 977;
   const rand = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0), s / 4294967296);
@@ -59,6 +59,7 @@ const BELT: V3[] = (() => {
 export default function NavMap() {
   const phone = usePhone();
   const expanded = useUI((s) => s.mapExpanded);
+  const hl = useUI((s) => s.highlight.includes("map"));
   const auto = useUI((s) => s.autopilot);
   const { engine, travel, cancelTravel } = useObservatory();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -211,7 +212,8 @@ export default function NavMap() {
         }
         const planet = b.kind === "planet";
         const probe = isProbe(b.kind as Kind);
-        const colour = planet ? b.colour : probe ? PROBE : SMALL;
+        // unscanned bodies show where they are, not what they are
+        const colour = !b.known ? SMALL : planet ? b.colour : probe ? PROBE : SMALL;
         g.fillStyle = colour;
         g.shadowColor = colour;
         g.shadowBlur = 6;
@@ -243,10 +245,11 @@ export default function NavMap() {
         }
         // planets and dwarf planets keep their names; asteroids and probes name themselves
         // on hover, or once the map is zoomed in far enough to make room
-        const named = planet || b.kind === "dwarf" || v.zoom >= 1.8;
+        const named = (b.known && (planet || b.kind === "dwarf")) || v.zoom >= 1.8;
         if (!named && !hot && !isHover) continue;
+        const label = b.known ? b.name : "UNIDENTIFIED";
         g.fillStyle = hot ? "#ff9875" : isHover ? "#47ffa9" : colour;
-        if (claim(q.x + 7, q.y, b.name, hot || isHover)) g.fillText(b.name, q.x + 7, q.y);
+        if (claim(q.x + 7, q.y, label, hot || isHover)) g.fillText(label, q.x + 7, q.y);
       }
       // you: red marker pointing along the view
       const ahead = P(mapPos([snap.me[0] + snap.forward[0] * AU_KM * 0.6, snap.me[1] + snap.forward[1] * AU_KM * 0.6, snap.me[2] + snap.forward[2] * AU_KM * 0.6]));
@@ -395,6 +398,7 @@ export default function NavMap() {
       id="nav-dock"
       aria-label="Solar system map"
       data-expanded={expanded}
+      data-hl={hl}
       className={
         sheet
           ? "pointer-events-auto absolute inset-x-0 bottom-0 z-[7] h-[38dvh] border-t border-gold/70 bg-void/95 pb-[env(safe-area-inset-bottom)]"
