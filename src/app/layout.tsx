@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo_Narrow, Imbue, Saira_Condensed, Share_Tech_Mono } from "next/font/google";
+import { SITE } from "@/lib/site";
 import "./globals.css";
 
 const saira = Saira_Condensed({
@@ -33,6 +34,8 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "SANCTUARY",
   description: "A voiced story game in the real solar system: wake near Uranus, fly home through true positions and distances, and find out why nobody answers.",
+  authors: [{ name: SITE.author, url: SITE.authorUrl }],
+  creator: SITE.author,
   openGraph: {
     title: "SANCTUARY",
     description: "A voiced story game in the real solar system: wake near Uranus, fly home through true positions and distances, and find out why nobody answers.",

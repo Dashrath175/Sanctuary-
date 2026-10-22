@@ -2,6 +2,8 @@
   "name": "sanctuary",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Dashrath175 (https://github.com/Dashrath175)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

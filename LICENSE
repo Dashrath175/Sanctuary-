@@ -1,0 +1,156 @@
+SANCTUARY LICENSE (SOURCE-AVAILABLE, ALL RIGHTS RESERVED)
+Version 1.0, October 2026
+
+Copyright (c) 2026 Dashrath175. All rights reserved.
+
+SANCTUARY is source-available, not open source. You may play it, share it
+and read its code. You may not reuse it, copy it, host it anywhere else or
+present it as your own work.
+
+
+1. DEFINITIONS
+
+"Author" means Dashrath175 (https://github.com/Dashrath175), who created the
+Game and owns the copyright in the Protected Work.
+
+"Game" means SANCTUARY in every version, including the official build hosted
+at https://sanctuary-one-sigma.vercel.app (the "official address") and this
+repository.
+
+"Protected Work" means everything in the Game and in this repository that was
+created by or for the Author, including but not limited to: source code,
+shaders, scripts and tools; the story, script, dialogue, characters and the
+names "SANCTUARY", "FABLE", "Kestrel" and "Halcyon" as used in the Game;
+voice recordings and captions; the logo, artwork, user interface, screenshots,
+videos and documentation; and the Author's selection, arrangement and
+processing of data and assets. It does not include Third-Party Materials
+(section 6).
+
+"You" means any person or organisation that accesses the Game or this
+repository.
+
+
+2. WHAT YOU MAY DO
+
+As long as you follow every term of this license, you may:
+
+  (a) Play the Game at the official address, free of charge.
+
+  (b) Share links to the official address and to this repository, with
+      anyone and anywhere.
+
+  (c) Read the source code in this repository for personal learning and
+      reference.
+
+  (d) Make and publish screenshots, gameplay videos, live streams, reviews
+      and articles about the Game, including on monetised channels, provided
+      that the Game is credited as "SANCTUARY by Dashrath175" with a link to
+      the official address or to this repository, and that nothing suggests
+      the Game was made by anyone else.
+
+  (e) Fork this repository on GitHub, but only to the extent that GitHub's
+      Terms of Service allow for public repositories. A fork gives you no
+      rights beyond this license, and section 3 applies to it in full.
+
+Nothing else is allowed.
+
+
+3. WHAT YOU MAY NOT DO
+
+Unless the Author has given you written permission first, you may not:
+
+  (a) Copy, reuse, adapt or include any part of the Protected Work, including
+      any of its code, in whole or in part, in any other project, product or
+      service, whether commercial or not.
+
+  (b) Host, mirror, re-upload, embed or distribute the Game or any part of
+      the Protected Work on any website, domain, platform, store or medium.
+      Linking to the official address is always allowed.
+
+  (c) Modify the Game, or publish any modified, translated, rebranded or
+      derived version of it.
+
+  (d) Claim, present or imply that you created, own or co-created the Game or
+      any part of the Protected Work, including in competitions, hackathons,
+      coursework, portfolios, job applications and on social media.
+
+  (e) Remove, hide or change any copyright notice, credit, author name or
+      this license.
+
+  (f) Sell, license, rent or otherwise use the Protected Work for commercial
+      purposes, except as allowed in section 2(d).
+
+  (g) Use the Protected Work to train, fine-tune or evaluate machine learning
+      or artificial intelligence models, or include it in any dataset.
+
+  (h) Use the Game's names or logo for another game, app or project, or in
+      any way that suggests a connection to, or endorsement by, the Author.
+
+  (i) Install, build, run or execute the code, or run any copy of the Game
+      other than the one at the official address.
+
+
+4. CONTRIBUTIONS
+
+Bug reports, issues and suggestions are welcome. If you send a contribution
+(such as a pull request, patch or idea), you give the Author a perpetual,
+worldwide, royalty-free and irrevocable right to use, change and publish it,
+as part of the Game or otherwise, with or without credit, and you confirm
+that you have the right to give it. Sending a contribution gives you no
+rights in the Game, and the Author does not have to accept or use it.
+
+
+5. PERMISSION
+
+Any use not expressly allowed in section 2 needs the Author's written
+permission first. To ask, contact the Author through
+https://github.com/Dashrath175 or open an issue in this repository.
+Permission counts only when the Author gives it in writing, and only for the
+use it describes.
+
+
+6. THIRD-PARTY MATERIALS
+
+The Game uses data, models, music and software made by others ("Third-Party
+Materials"). Their sources and licenses are listed under "Data and credits"
+in README.md and on the Game's loading screen. Third-Party Materials stay
+under their own licenses, and nothing in this license limits the rights those
+licenses give you. Files derived from material under a ShareAlike license
+(the star catalogue and the Milky Way images) are shared under that same
+license, as stated in README.md. Packages installed by npm are covered by
+their own licenses.
+
+
+7. TERMINATION
+
+If you break any term of this license, your permissions under it end
+automatically and without notice, and you must delete every copy of the
+Protected Work that you have.
+
+
+8. ENFORCEMENT
+
+The Protected Work is protected by copyright law and international treaties.
+Any use outside this license infringes the Author's copyright. The Author may,
+without further notice, have infringing copies removed (for example through
+DMCA or equivalent takedown notices to hosts, platforms, stores and search
+engines) and may seek any other remedy available under applicable law,
+including damages and injunctions.
+
+
+9. NO WARRANTY
+
+THE GAME IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE GAME OR ITS USE.
+
+
+10. GENERAL
+
+The Author may publish new versions of this license; the version in this
+repository's default branch applies from the day it is published. If any
+part of this license is found unenforceable, the rest stays in effect. Not
+enforcing a term is not a waiver of it. This license does not transfer
+ownership of anything to you.

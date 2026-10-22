@@ -21,6 +21,7 @@
   <img alt="three.js" src="https://img.shields.io/badge/three.js-r186-ff6a1f?style=for-the-badge&logo=threedotjs&logoColor=ff6a1f&labelColor=05040a">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-cfd6e6?style=for-the-badge&logo=typescript&logoColor=cfd6e6&labelColor=05040a">
   <img alt="Tailwind CSS 4" src="https://img.shields.io/badge/Tailwind-4-f0b32a?style=for-the-badge&logo=tailwindcss&logoColor=f0b32a&labelColor=05040a">
+  <a href="#licence"><img alt="Licence: all rights reserved" src="https://img.shields.io/badge/licence-all%20rights%20reserved-ff5c55?style=for-the-badge&labelColor=05040a"></a>
 </p>
 
 <p align="center">
@@ -65,6 +66,7 @@
 
 - [Project structure](#project-structure)
 - [Data and credits](#data-and-credits)
+- [Licence](#licence)
 
 </td>
   </tr>
@@ -334,33 +336,19 @@ The whole HUD reflows for small screens: drag to look, press and hold to fly ahe
 
 ## Getting started
 
-Requirements: Node.js 20.9 or newer and npm.
+Open **https://sanctuary-one-sigma.vercel.app** in a modern browser, on a computer or a phone, and turn the sound
+on. Nothing to install, and the game saves your journey in the browser. Share the link with anyone you like.
 
-```bash
-npm install
-```
-
-```bash
-npm run dev
-```
-
-Then open http://localhost:3000. A production build:
-
-```bash
-npm run build
-```
-
-```bash
-npm start
-```
+Building, running or hosting this code needs the author's written permission; see [Licence](#licence).
 
 <p align="center"><img src="docs/media/divider.svg" alt="" width="100%"></p>
 
 ## Deploying
 
-The project is a standard Next.js app with no environment variables and no server-side data, so it deploys to
-[Vercel](https://vercel.com) as is: import the repository, keep the detected **Next.js** preset (build command
-`next build`, install command `npm install`) and deploy. All data files are static assets under `public/`.
+The game is hosted only at its official address, **https://sanctuary-one-sigma.vercel.app**, built by
+[Vercel](https://vercel.com) from `main`: a standard Next.js app with no environment variables and no server-side
+data, every data file a static asset under `public/`. Hosting a copy, a mirror or a modified version anywhere else
+is not permitted; see [Licence](#licence).
 
 <p align="center"><img src="docs/media/divider.svg" alt="" width="100%"></p>
 
@@ -448,7 +436,7 @@ scripts/
 docs/media/               README logo, banner, screenshots and clip previews
 ```
 
-The scripts only matter if you want to regenerate the data; the built files are already in `public/`.
+The scripts regenerate the data; the built files are already in `public/`.
 
 <p align="center"><img src="docs/media/divider.svg" alt="" width="100%"></p>
 
@@ -495,7 +483,44 @@ The scripts only matter if you want to regenerate the data; the built files are 
 
 <p align="center"><img src="docs/media/divider.svg" alt="" width="100%"></p>
 
+## Licence
+
+**SANCTUARY is source-available, not open source.** © 2026 Dashrath175. All rights reserved.
+
+<table>
+  <tr>
+    <th align="left" width="50%">Allowed</th>
+    <th align="left" width="50%">Not allowed without written permission</th>
+  </tr>
+  <tr>
+    <td valign="top">
+
+- Play the game and share its link with anyone
+- Read the code here to learn from it
+- Post screenshots, gameplay videos, streams and reviews, credited as
+  "SANCTUARY by Dashrath175" with a link
+
+</td>
+    <td valign="top">
+
+- Copying any of the code, story, voices, logo or art into another project
+- Building or running the code, or any copy of the game other than the official one
+- Hosting, mirroring or re-uploading the game or this repository anywhere else
+- Publishing a modified or renamed version
+- Presenting the game, or any part of it, as your own work, in competitions, portfolios and coursework too
+- Commercial use, or using it to train AI models
+
+</td>
+  </tr>
+</table>
+
+The full terms are in [LICENSE](LICENSE). Third-party data, models and music keep their own licences, listed under
+[Data and credits](#data-and-credits). To ask for permission, or to report a copy passed off as someone else's
+work, [open an issue](https://github.com/Dashrath175/Sanctuary-/issues).
+
+<p align="center"><img src="docs/media/divider.svg" alt="" width="100%"></p>
+
 <p align="center">
   <img src="docs/media/logo.svg" alt="SANCTUARY" width="360"><br>
-  <sub>Made by <a href="https://github.com/Dashrath175">Dashrath175</a>. Fly safe, Commander.</sub>
+  <sub>Made by <a href="https://github.com/Dashrath175">Dashrath175</a> · © 2026, all rights reserved. Fly safe, Commander.</sub>
 </p>
