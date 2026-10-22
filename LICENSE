@@ -1,7 +1,7 @@
 SANCTUARY LICENSE (SOURCE-AVAILABLE, ALL RIGHTS RESERVED)
 Version 1.0, October 2026
 
-Copyright (c) 2026 Dashrath175. All rights reserved.
+Copyright (c) 2026 Dashrath (Dashrath175). All rights reserved.
 
 SANCTUARY is source-available, not open source. You may play it, share it
 and read its code. You may not reuse it, copy it, host it anywhere else or
@@ -10,8 +10,9 @@ present it as your own work.
 
 1. DEFINITIONS
 
-"Author" means Dashrath175 (https://github.com/Dashrath175), who created the
-Game and owns the copyright in the Protected Work.
+"Author" means Dashrath, known on GitHub as Dashrath175
+(https://github.com/Dashrath175), who created the Game and owns the copyright
+in the Protected Work.
 
 "Game" means SANCTUARY in every version, including the official build hosted
 at https://sanctuary-one-sigma.vercel.app (the "official address") and this
@@ -88,6 +89,16 @@ Unless the Author has given you written permission first, you may not:
 
   (i) Install, build, run or execute the code, or run any copy of the Game
       other than the one at the official address.
+
+  (j) Use any tool, program, service or automated method to copy, clone,
+      download, scrape, extract, decompile, reverse-engineer or recreate the
+      Game or any part of the Protected Work, including its code, assets,
+      voices, design, look and behaviour. This covers reverse-engineering
+      and runtime-capture tools such as REA, website copiers and site
+      rippers, scrapers, asset extractors and decompilers, and AI agents,
+      assistants, skills, plugins or prompts used for that purpose. It also
+      covers recording, capturing or measuring the Game's code, network
+      traffic or behaviour in order to rebuild or imitate it.
 
 
 4. CONTRIBUTIONS

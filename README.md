@@ -485,7 +485,7 @@ The scripts regenerate the data; the built files are already in `public/`.
 
 ## Licence
 
-**SANCTUARY is source-available, not open source.** © 2026 Dashrath175. All rights reserved.
+**SANCTUARY is source-available, not open source.** © 2026 Dashrath ([Dashrath175](https://github.com/Dashrath175)). All rights reserved.
 
 <table>
   <tr>
@@ -505,6 +505,8 @@ The scripts regenerate the data; the built files are already in `public/`.
 
 - Copying any of the code, story, voices, logo or art into another project
 - Building or running the code, or any copy of the game other than the official one
+- Using REA or any other reverse-engineering, capture, scraping or site-copying tool, or an AI agent, skill or
+  plugin, to copy, extract or recreate the game
 - Hosting, mirroring or re-uploading the game or this repository anywhere else
 - Publishing a modified or renamed version
 - Presenting the game, or any part of it, as your own work, in competitions, portfolios and coursework too
