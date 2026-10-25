@@ -9,6 +9,7 @@ import { announceUnlock, showReadout, store, toast, useUI, type Story } from "@/
 import { audio } from "@/lib/audio";
 import { estimateMs, hush, inScene, readOut, remark, speak } from "@/lib/dialogue";
 import { loadOtherVoices, preloadVoices } from "@/lib/voice";
+import { isSideways, isTouch } from "@/lib/usePhone";
 import { clearProgress, loadSave, unlocksFor, writeSave, type Chapter, type Journey } from "@/lib/journey";
 import { CLUES, DEEP_TOO_FAR, HINT_INWARD, HINT_NEAR_LINES, HINT_OUTWARD, SHIP1_DONE, deepBeat, explorationProgress, foundBeat, recovered, siteOpen, type ClueSite } from "@/lib/clues";
 import * as F from "@/lib/finale";
@@ -62,7 +63,6 @@ export const useObservatory = () => useContext(ObservatoryContext)!;
 
 const MOBILE_QUERY = "(max-width: 700px)";
 const SCAN_MS = 2400;
-const isPhone = () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches;
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // the asteroid belt counts as crossed once we are this close to the Sun
@@ -294,7 +294,8 @@ export default function Observatory() {
       if (resumed) toast("JOURNEY RESUMED");
       // pick the story up wherever it stands
       const c = journey().chapter;
-      if (c !== "reckoning") void speak([isPhone() ? CONTROLS_PHONE : CONTROLS_DESKTOP]);
+      // the controls for the hand holding the game: touch on a phone or tablet, keys otherwise
+      if (c !== "reckoning") void speak([isTouch() ? CONTROLS_PHONE : CONTROLS_DESKTOP]);
       if (c === "inbound" && !hasBeat("inbound-talk")) later(resumed ? 12_000 : INBOUND_TALK_AFTER_MS, inboundTalk);
       if (c === "earth") earthNext();
       if (c === "signal") later(4000, signalNext);
@@ -1295,8 +1296,9 @@ export default function Observatory() {
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       const s = store.get();
       if (s.story === "gate") {
-        // a key on one of the gate's own buttons (start a new journey) presses that button instead
-        if (!(e.target as HTMLElement | null)?.closest?.("button")) actions.wake();
+        // a key on one of the gate's own buttons (start a new journey) presses that button instead;
+        // nothing wakes behind the rotate notice
+        if (!(e.target as HTMLElement | null)?.closest?.("button") && !isSideways()) actions.wake();
         return;
       }
       if (s.deepOnly) {
@@ -1321,8 +1323,8 @@ export default function Observatory() {
     };
     const onPointer = (e: PointerEvent) => {
       const btn = (e.target as HTMLElement | null)?.closest("button");
-      // anywhere on the gate wakes the ship, except its own buttons
-      if (store.get().story === "gate" && !btn) actions.wake();
+      // anywhere on the gate wakes the ship, except its own buttons and the rotate notice over it
+      if (store.get().story === "gate" && !btn && !isSideways()) actions.wake();
       if (btn && e.pointerType !== "") window.setTimeout(() => btn.blur(), 0);
     };
     window.addEventListener("keydown", onKey);
@@ -1372,6 +1374,11 @@ export default function Observatory() {
             <p className="mt-[6px]">This browser could not start WebGL. Try enabling hardware acceleration or another browser. The records still work.</p>
           </div>
         )}
+        {/* shown only on a phone held on its side (globals.css): the instruments need it upright */}
+        <div id="rotate-notice" role="status" className="rotate-notice fixed inset-0 z-[40] flex-col items-center justify-center bg-void px-[24px] text-center font-hud">
+          <p className="text-[13px] font-bold tracking-[2px] text-alert glow">ROTATE YOUR PHONE</p>
+          <p className="mt-[8px] text-[11px] leading-[16px] tracking-[1px] text-mint">SANCTUARY IS BUILT FOR A PHONE HELD UPRIGHT</p>
+        </div>
       </main>
     </ObservatoryContext.Provider>
   );

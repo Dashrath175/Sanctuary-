@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { store, useUI } from "@/lib/store";
 import { LOADER } from "@/lib/script";
 import { useObservatory } from "./Observatory";
-import { usePhone } from "@/lib/usePhone";
+import { usePhone, useTouch } from "@/lib/usePhone";
 import { LogoMark } from "./LogoMark";
 
 // Archive loader: log lines type in one after another with a block cursor, a thin progress
@@ -31,6 +31,8 @@ export default function Loader() {
   const [chars, setChars] = useState(0);
   const [gone, setGone] = useState(false);
   const phone = usePhone();
+  // a tablet has the wide layout and no mouse either: the words follow the hand, not the width
+  const touch = useTouch();
   const active = story === "loading" || story === "gate";
 
   // type the log
@@ -117,7 +119,7 @@ export default function Loader() {
             <div className="mt-[14px] h-px w-full bg-note/40" />
             <p className="cursor-block mt-[12px] text-[10px] tracking-[0.04em] text-mint md:text-[12px]">
               <span className="mr-[7px] text-[0.6em] align-middle">▸</span>
-              {resuming ? (phone ? LOADER.resumePhone : LOADER.resumeDesktop) : phone ? LOADER.gatePhone : LOADER.gateDesktop}
+              {resuming ? (touch ? LOADER.resumePhone : LOADER.resumeDesktop) : touch ? LOADER.gatePhone : LOADER.gateDesktop}
             </p>
             {resuming && (
               <button
@@ -130,7 +132,7 @@ export default function Loader() {
                 className={`mt-[10px] text-[9px] tracking-[0.08em] md:text-[10.5px] ${erase ? "text-alert glow" : "text-note hover:text-alert"}`}
               >
                 <span className="mr-[7px] text-[0.6em] align-middle">▸</span>
-                {erase ? LOADER.newConfirm : LOADER.newJourney}
+                {erase ? (touch ? LOADER.newConfirmPhone : LOADER.newConfirm) : LOADER.newJourney}
               </button>
             )}
           </>

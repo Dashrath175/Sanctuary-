@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { store, useUI } from "@/lib/store";
+import { useTouch } from "@/lib/usePhone";
 import { CLUES, clueById, type ArchiveEntry } from "@/lib/clues";
 import { RECORDINGS, recordingById, type Recording } from "@/lib/finale";
 import { audio } from "@/lib/audio";
@@ -108,6 +109,8 @@ function useReplay() {
 export default function Archive() {
   const open = useUI((s) => s.archiveOpen);
   const ids = useUI((s) => s.journey.archive);
+  // Esc only closes it where there is a keyboard
+  const touch = useTouch();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
@@ -165,7 +168,7 @@ export default function Archive() {
           onClick={close}
           className="absolute right-[var(--side)] top-[calc(env(safe-area-inset-top)+14px)] flex h-[28px] items-center gap-[6px] whitespace-nowrap font-hud text-[12px] font-bold tracking-[0.3px] text-alert glow-halo hover:text-loc md:top-[30px]"
         >
-          <span aria-hidden>⏎</span> RETURN · ESC
+          <span aria-hidden>⏎</span> {touch ? "RETURN" : "RETURN · ESC"}
         </button>
       </header>
 

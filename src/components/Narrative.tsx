@@ -1,6 +1,7 @@
 "use client";
 
 import { store, useUI } from "@/lib/store";
+import { useTouch } from "@/lib/usePhone";
 import { CHAR_MS, SPEAKERS } from "@/lib/script";
 import { useObservatory } from "./Observatory";
 import { SoundToggle } from "./hud/Hud";
@@ -13,6 +14,7 @@ export default function Narrative() {
   const sub = useUI((s) => s.subtitle);
   const { advance, skip } = useObservatory();
   const playback = useUI((s) => s.playback);
+  const touch = useTouch();
   const opening = story === "waking";
   const canSkip = story === "waking" || story === "awaiting-scan" || story === "contact";
 
@@ -25,7 +27,7 @@ export default function Narrative() {
           role="status"
           aria-live="polite"
           aria-atomic="true"
-          className="absolute bottom-[calc(env(safe-area-inset-bottom)+138px)] left-1/2 w-[350px] -translate-x-1/2 text-center font-saira md:bottom-[157px] md:w-[570px]"
+          className="absolute bottom-[calc(env(safe-area-inset-bottom)+148px)] left-1/2 w-[350px] -translate-x-1/2 text-center font-saira md:bottom-[157px] md:w-[570px]"
         >
           {sub.who && <span className={`block text-[10px] leading-[15px] tracking-[1px] soft ${sub.who === "player" ? "text-ink" : "text-voice"}`}>{SPEAKERS[sub.who]}</span>}
           <p key={sub.key} className={`${sub.who ? "mt-[5px] md:mt-[7px]" : ""} text-[14.5px] leading-[21px] tracking-[0.24px] soft md:text-[16.065px] md:leading-[24.1px] ${sub.who === "player" ? "text-ink" : "text-voice"}`}>
@@ -39,7 +41,7 @@ export default function Narrative() {
               aria-label="Continue dialogue"
               className="pointer-events-auto absolute left-1/2 top-full mt-[14px] -translate-x-1/2 whitespace-nowrap px-[10px] py-[10px] text-[10px] leading-[13px] tracking-[2.2px] text-ash opacity-70 halo hover:opacity-100"
             >
-              CONTINUE ↵
+              {touch ? "CONTINUE" : "CONTINUE ↵"}
             </button>
           )}
         </div>

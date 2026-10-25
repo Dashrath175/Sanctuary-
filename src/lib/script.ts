@@ -36,6 +36,7 @@ export const LOADER = {
   resumePhone: "TAP TO RESUME YOUR JOURNEY",
   newJourney: "OR START A NEW JOURNEY",
   newConfirm: "CLICK AGAIN TO ERASE YOUR PROGRESS AND START OVER",
+  newConfirmPhone: "TAP AGAIN TO ERASE YOUR PROGRESS AND START OVER",
   assets: "LOADING MAPS · VEHICLES · VOICES",
   phoneNotice: ["PHONE VIEW", "BEST ON DESKTOP"],
 };

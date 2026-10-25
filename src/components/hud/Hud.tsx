@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { store, useUI } from "@/lib/store";
+import { useTouch } from "@/lib/usePhone";
 import { audio } from "@/lib/audio";
 import { BODIES, byId } from "@/lib/solar";
 import { explorationProgress } from "@/lib/clues";
@@ -136,10 +137,12 @@ export function ScanPanel() {
   const locked = useUI((s) => s.locked);
   const hl = useUI((s) => s.highlight.includes("scan"));
   const earthDeep = useUI((s) => s.journey.chapter === "earth" && s.journey.beats.includes("earth-identified") && !s.journey.beats.includes("earth-deep"));
+  const touch = useTouch();
   if (story === "contact" && !scanning) return null;
   const deep = (story === "exploring" && stage === "deep") || earthDeep;
   const label = locked ? "SCAN LOCKED" : !online ? "SCAN OFFLINE" : scanning ? (deep ? "LOOKING DEEPER…" : "SCANNING…") : deep ? "DEEP SCAN" : "SCAN";
-  const small = locked ? "CONTROLS LOCKED" : !online ? (belt ? "SENSOR INTERFERENCE" : "SENSORS RECALIBRATING") : earthDeep ? "LIFE SIGNS · F" : deep ? "STARS & CONSTELLATIONS · F" : "NEARBY SKY · F";
+  const key = touch ? "" : " · F";
+  const small = locked ? "CONTROLS LOCKED" : !online ? (belt ? "SENSOR INTERFERENCE" : "SENSORS RECALIBRATING") : earthDeep ? `LIFE SIGNS${key}` : deep ? `STARS & CONSTELLATIONS${key}` : `NEARBY SKY${key}`;
   return (
     <section id="scan-panel" data-hud-in="8" className="absolute bottom-[calc(env(safe-area-inset-bottom)+76px)] left-1/2 z-[6] -translate-x-1/2 md:bottom-[77px]">
       <button
@@ -151,7 +154,7 @@ export function ScanPanel() {
         data-call={story === "awaiting-scan"}
         data-offline={!online || locked}
         data-hl={hl}
-        aria-label={deep ? "Deep scan: stars and constellations (F)" : "Scan nearby sky (F)"}
+        aria-label={`${deep ? "Deep scan: stars and constellations" : "Scan nearby sky"}${touch ? "" : " (F)"}`}
         className="scan-btn h-[33px] min-w-[107px] whitespace-nowrap px-[15.3px] tracking-[2.4px] md:h-[40px] md:min-w-[140px] md:px-[18px] md:tracking-[0.3px]"
       >
         <span className="scan-sweep" aria-hidden />
@@ -242,6 +245,7 @@ function Brand() {
         ))}
       </div>
       <div
+        id="star-key"
         data-hud-in="2"
         className="mt-[4px] grid grid-cols-[max-content_auto_auto] gap-x-[8px] gap-y-[2px] font-hud text-[9px] leading-[11px] halo md:grid-cols-[max-content_auto_auto] md:gap-x-[12px] md:gap-y-[4px] md:text-[12px] md:leading-[15px] md:tracking-[0.3px]"
       >
@@ -288,7 +292,7 @@ function DrivePanel() {
     <section
       id="speed-panel"
       data-hud-in="6"
-      className="plus-frame absolute left-[var(--side)] top-[calc(env(safe-area-inset-top)+14px)] w-[148px] font-hud md:top-[26.45%] md:w-[230px]"
+      className="plus-frame absolute left-[var(--side)] top-[calc(env(safe-area-inset-top)+14px)] w-[148px] font-hud md:top-[max(26.45%,212px)] md:w-[230px]"
     >
       <span className="badge">01 / DRIVE</span>
       <div className="mt-[12px] flex h-[30px] items-baseline gap-[5px] md:h-[18px]">
@@ -520,7 +524,7 @@ function BearingsPanel() {
     <section
       id="radar-panel"
       data-hud-in="7"
-      className="plus-frame absolute right-[var(--side)] top-[calc(env(safe-area-inset-top)+14px)] w-[148px] font-hud md:top-[26.45%] md:w-[237px]"
+      className="plus-frame absolute right-[var(--side)] top-[calc(env(safe-area-inset-top)+14px)] w-[148px] font-hud md:top-[max(26.45%,212px)] md:w-[237px]"
     >
       <span className="badge ml-auto">02 / BEARINGS</span>
       <div className="mt-[10px] md:mt-[12px]" title="Heading / elevation in the fixed J2000 ecliptic frame">
@@ -596,11 +600,41 @@ function TargetGuide() {
   );
 }
 
+/**
+ * Lifts a bottom-anchored element clear of any of the given boxes it would sit on (a long
+ * caption, the approach panel, the map sheet), back to where its class puts it once they are gone.
+ */
+function liftClear(el: HTMLElement, ids: string[]) {
+  el.style.bottom = "";
+  for (let pass = 0; pass < ids.length; pass++) {
+    const r = el.getBoundingClientRect();
+    let need = 0;
+    for (const id of ids) {
+      const o = document.getElementById(id)?.getBoundingClientRect();
+      if (o && o.height > 0 && o.left < r.right && o.right > r.left && o.top < r.bottom + 10 && o.bottom > r.top) need = Math.max(need, window.innerHeight - o.top + 10);
+    }
+    if (!need) return;
+    el.style.bottom = `${Math.round(need)}px`;
+  }
+}
+
 function ApproachPanel() {
   const a = useUI((s) => s.approach);
+  const sub = useUI((s) => s.subtitle);
+  const ref = useRef<HTMLElement>(null);
+  const up = a !== null;
+  // on a phone the panel sits just over the captions: a long one lifts it clear
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => liftClear(el, ["subtitle-box"]);
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [sub, up]);
   if (!a) return null;
   return (
-    <section id="approach-panel" className={`approach-panel ${a.urgent ? "urgent" : ""}`} aria-live="polite">
+    <section ref={ref} id="approach-panel" className={`approach-panel ${a.urgent ? "urgent" : ""}`} aria-live="polite">
       <strong id="approach-phase">{a.phase}</strong>
       <p>{a.detail}</p>
     </section>
@@ -610,23 +644,49 @@ function ApproachPanel() {
 /* ---------- footer / misc ---------- */
 
 function NavHelp() {
+  // a tablet gets the wide layout but has no keys to name
+  const touch = useTouch();
   return (
     <div
+      id="nav-help"
       data-hud-in="5"
       className="absolute bottom-[20px] right-[var(--side)] hidden h-[28px] items-center gap-[12px] whitespace-nowrap font-hud text-[10px] leading-[12.5px] tracking-[0.25px] text-dim halo md:flex"
     >
-      <span>W GO · S BACK</span>
-      <span>DRAG / A D / ARROWS STEER</span>
-      <span>SHIFT UP · SPACE DOWN</span>
-      <span>X BRAKE</span>
+      {touch ? (
+        <>
+          <span>DRAG TO LOOK AROUND</span>
+          <span>PRESS AND HOLD TO FLY AHEAD</span>
+        </>
+      ) : (
+        <>
+          <span>W GO · S BACK</span>
+          <span>DRAG / A D / ARROWS STEER</span>
+          <span>SHIFT UP · SPACE DOWN</span>
+          <span>X BRAKE</span>
+        </>
+      )}
     </div>
   );
 }
 
 function Toast() {
   const t = useUI((s) => s.toast);
+  const sub = useUI((s) => s.subtitle);
+  const approach = useUI((s) => s.approach !== null);
+  const map = useUI((s) => s.mapExpanded);
+  const ref = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<{ text: string; key: number } | null>(null);
   const [visible, setVisible] = useState(false);
+  // a caption of two or three lines, or on a phone the approach panel or the map sheet, can reach
+  // up to where the toast sits: the toast goes just above them
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => liftClear(el, ["subtitle-box", "approach-panel", "nav-dock"]);
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [sub, shown, approach, map]);
   useEffect(() => {
     if (!t) return;
     const a = window.setTimeout(() => {
@@ -641,6 +701,7 @@ function Toast() {
   }, [t]);
   return (
     <div
+      ref={ref}
       id="toast"
       role="status"
       className={`toast absolute bottom-[215px] left-1/2 -translate-x-1/2 whitespace-nowrap font-hud text-[11px] leading-[15px] tracking-[1.2px] text-mint glow-halo md:text-[12px] ${visible ? "opacity-100" : "opacity-0"}`}
@@ -655,9 +716,10 @@ function SignalMeter() {
   const k = useUI((s) => s.signal);
   if (k === null) return null;
   return (
-    <div className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+36px)] z-[6] w-[180px] -translate-x-1/2 text-center font-hud text-[10px] leading-[14px] tracking-[1.2px] text-dim halo md:top-[62px] md:w-[220px]">
+    <div id="signal-meter" className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+36px)] z-[6] w-[180px] -translate-x-1/2 whitespace-nowrap text-center font-hud text-[10px] leading-[14px] tracking-[1.2px] text-dim halo max-[520px]:w-auto md:top-[62px] md:w-[220px]">
       SIGNAL <b className="font-normal text-mint glow">{k}%</b>
-      <div className="mt-[3px] h-[3px] w-full bg-white/10">
+      {/* a narrow phone has no room for the bar between the drive and bearings panels: the figure says it */}
+      <div className="mt-[3px] h-[3px] w-full bg-white/10 max-[520px]:hidden">
         <div className="h-full bg-mint transition-[width] duration-700" style={{ width: `${k}%` }} />
       </div>
     </div>

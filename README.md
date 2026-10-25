@@ -310,7 +310,7 @@ distance from the Sun.
 
 ### On a phone
 
-The whole HUD reflows for small screens: drag to look, press and hold to fly ahead.
+The whole HUD reflows for small screens: drag to look, press and hold to fly ahead. Hold the phone upright; turned on its side, it asks to be turned back. A tablet keeps the wide layout with the same touch controls, and the hints on screen name taps instead of keys.
 
 <p align="center"><img src="docs/media/phone.jpg" alt="Saturn and a scan on a phone" width="70%"></p>
 
@@ -318,7 +318,7 @@ The whole HUD reflows for small screens: drag to look, press and hold to fly ahe
 
 ## Controls
 
-| Action | Desktop | Phone |
+| Action | Desktop | Phone or tablet |
 | --- | --- | --- |
 | Look around | Drag, or A / D / Q / E and the arrow keys | Drag |
 | Fly ahead | W (hold) | Press and hold |

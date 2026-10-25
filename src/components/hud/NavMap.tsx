@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { store, useUI } from "@/lib/store";
-import { usePhone } from "@/lib/usePhone";
+import { usePhone, useTouch } from "@/lib/usePhone";
 import { AU_KM, BODIES, orbitShape, orbitTrail, type Kind } from "@/lib/solar";
 import { useObservatory } from "../Observatory";
 
@@ -58,6 +58,8 @@ const BELT: V3[] = (() => {
 
 export default function NavMap() {
   const phone = usePhone();
+  // a tablet shows the wide map with no keyboard: hints name taps, not keys
+  const touch = useTouch();
   const expanded = useUI((s) => s.mapExpanded);
   const hl = useUI((s) => s.highlight.includes("map"));
   const auto = useUI((s) => s.autopilot);
@@ -455,25 +457,25 @@ export default function NavMap() {
             </button>
           )}
         </div>
-        {expanded && !sheet && !flying && <p className="ml-auto truncate text-right text-[10px] leading-[15px] tracking-[0.25px] text-dim halo">▸ CLICK A PLANET · AUTOPILOT</p>}
+        {expanded && !sheet && !flying && <p className="ml-auto truncate text-right text-[10px] leading-[15px] tracking-[0.25px] text-dim halo">{touch ? "▸ TAP A PLANET · AUTOPILOT" : "▸ CLICK A PLANET · AUTOPILOT"}</p>}
         {flying && !sheet && expanded && (
           <button
             type="button"
             onClick={cancelTravel}
             className="ml-auto min-h-[28px] whitespace-nowrap rounded-[4px] border border-alert bg-[rgba(5,4,10,0.72)] px-[10px] py-[5px] text-[12px] font-bold leading-[13px] tracking-[0.3px] text-alert shadow-[0_0_8px_rgba(255,71,71,0.42)] glow hover:bg-[rgba(240,179,42,0.1)]"
           >
-            CANCEL AUTOPILOT · X
+            {touch ? "CANCEL AUTOPILOT" : "CANCEL AUTOPILOT · X"}
           </button>
         )}
       </div>
-      {sheet && <p className="pointer-events-none absolute left-[var(--side)] top-[14px] font-hud text-[10px] tracking-[0.25px] text-dim halo">▸ TAP A PLANET · AUTOPILOT</p>}
+      {sheet && <p className="pointer-events-none absolute left-[var(--side)] top-[14px] font-hud text-[10px] tracking-[0.25px] text-dim halo">{touch ? "▸ TAP A PLANET · AUTOPILOT" : "▸ CLICK A PLANET · AUTOPILOT"}</p>}
       {flying && sheet && (
         <button
           type="button"
           onClick={cancelTravel}
           className="absolute bottom-[calc(env(safe-area-inset-bottom)+8px)] left-[var(--side)] whitespace-nowrap rounded-[4px] border border-alert bg-[rgba(5,4,10,0.72)] px-[10px] py-[5px] font-hud text-[11px] font-bold tracking-[0.3px] text-alert glow"
         >
-          CANCEL AUTOPILOT · X
+          {touch ? "CANCEL AUTOPILOT" : "CANCEL AUTOPILOT · X"}
         </button>
       )}
     </section>

@@ -13,6 +13,7 @@ import { cutShots, easeCut, type CutName, type CutOptions, type Look, type Orbit
 import { CraftGlow, TravelOptics, grainShader, lensShader, travelShader } from "./post";
 import { MAX_SPEED, shortKm } from "@/lib/units";
 import { RECORDS_KEY } from "@/lib/journey";
+import { isTouch } from "@/lib/usePhone";
 
 // Scene units: 1 = 1000 km. The camera always sits at the origin; every body is placed
 // relative to it each frame, so heliocentric distances of billions of km stay precise.
@@ -2987,10 +2988,12 @@ export class SpaceEngine {
       const tStar = v2 > 1e-6 ? sel.rel.dot(relV) / v2 : -1;
       const miss = tStar > 0 ? sel.rel.clone().addScaledVector(relV, -tStar).length() : sel.dist;
       const range = shortKm(Math.max(0, sel.dist - sel.def.radiusKm));
+      // on a touch screen, pressing and holding does what W does, and the SCAN button what F does
+      const touch = isTouch();
       if (this.pilot && this.pilot.id === sel.def.id) approach = { phase: this.pilot.phase === "orbit" ? "ARRIVING" : "AUTOPILOT", detail: `${range} KM to go.`, urgent: false };
-      else if (this.view?.l === sel) approach = { phase: this.view.phase === "zoom" ? "CLOSING IN" : "ALONGSIDE", detail: `${Math.round(sel.dist * 1000).toLocaleString("en-US")} M · drag to look round, W to leave.`, urgent: false };
-      else if (this.holding?.id === sel.def.id) approach = { phase: "HOLDING", detail: "Drag to look round; W to move off.", urgent: false };
-      else if (speed < 0.01 && sel.dist < this.standoff(sel) * 1.3) approach = { phase: "ARRIVED", detail: `${range} KM · drag to look round, F to scan.`, urgent: false };
+      else if (this.view?.l === sel) approach = { phase: this.view.phase === "zoom" ? "CLOSING IN" : "ALONGSIDE", detail: `${Math.round(sel.dist * 1000).toLocaleString("en-US")} M · drag to look round, ${touch ? "hold" : "W"} to leave.`, urgent: false };
+      else if (this.holding?.id === sel.def.id) approach = { phase: "HOLDING", detail: `Drag to look round; ${touch ? "hold" : "W"} to move off.`, urgent: false };
+      else if (speed < 0.01 && sel.dist < this.standoff(sel) * 1.3) approach = { phase: "ARRIVED", detail: `${range} KM · drag to look round, ${touch ? "tap SCAN" : "F to scan"}.`, urgent: false };
       else if (tStar > 0 && speed > 0.01) {
         approach = {
           phase: "CLOSING",

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useUI } from "@/lib/store";
+import { useTouch } from "@/lib/usePhone";
 import { CLUES, deepBeat, foundBeat, recovered, siteOpen } from "@/lib/clues";
 import type { Chapter } from "@/lib/journey";
 import { PART_TWO_CARD } from "@/lib/finale";
@@ -57,7 +58,10 @@ export function Objective() {
   const chapter = useUI((s) => s.journey.chapter);
   const beats = useUI((s) => s.journey.beats);
   const story = useUI((s) => s.story);
-  const text = useMemo(() => objectiveFor(chapter, beats, story), [chapter, beats, story]);
+  const touch = useTouch();
+  const said = useMemo(() => objectiveFor(chapter, beats, story), [chapter, beats, story]);
+  // the F key only means something with a keyboard; on a touch screen the SCAN button is the way
+  const text = said && touch ? said.replace(/ · F$/, "") : said;
   if (!text) return null;
   return (
     // on a phone the top corners hold the drive and bearings panels, so the objective sits under
