@@ -87,7 +87,7 @@
 | **A living Sun** | A blinding glare from afar; a scan dims it and shows its turning, mottled 3D surface with active regions and a red corona |
 | **Flight** | Thrust, time compression up to ×100, approach assist, autopilot with gentle acceleration and braking, a slow zone through the asteroid belt |
 | **Records** | Every world, moon and vehicle you identify is saved in your browser, with a rendered plate, a live 3D view and facts |
-| **Loads once** | Every map, model, shader and voice line loads behind the loading screen, so nothing pops in mid-flight |
+| **Loads once** | Every map, model and shader loads behind the loading screen, so nothing pops in mid-flight; the voices the story opens with load with them, the rest follow in the background |
 | **Filmed missions** | Finding Earth and both ships play out in the third person: the camera leaves the cockpit and keeps moving round your ship and what you came to, with no HUD |
 | **Archive** | Everything recovered lands on a timeline in the order it happened; both recordings can be played again, the spoken line lit up in the transcript |
 
@@ -375,9 +375,10 @@ billboard corona. Nothing is downloaded for it, and the extra work runs only whi
 ×100 between 50,000 and 100,000 km/s; the course follows the view; near any surface the effective speed is limited
 to the room left and you hold just above it.
 
-**Loading.** Behind the loading screen every surface map (smaller ones on phones), every spacecraft model and
-every voice file is fetched, the maps are uploaded to the GPU and the materials compiled, so the game never loads
-mid-flight. The start gate's click turns the sound on; ambience and effects are synthesised. The score is Blind
+**Loading.** Behind the loading screen every surface map (smaller ones on phones) and every spacecraft model is
+fetched, the maps are uploaded to the GPU and the materials compiled, so the game never loads mid-flight. Of the
+voice files, only those the opening speaks from load there; the rest follow one by one in the background (a resumed
+journey, which may need any line at once, loads them all first). The start gate's click turns the sound on; ambience and effects are synthesised. The score is Blind
 Willie Johnson's "Dark Was the Night, Cold Was the Ground" (1927), looping quietly under everything from the first
 time you fly forward (not before). It plays at full level in flight, dips to a quarter and muffles under every line of dialogue (back up in about 1.5 s),
 settles to about a third after a few seconds at rest and halves with the records open. Recovered recordings run over
@@ -389,6 +390,8 @@ the matching recording (when there is one), setting each caption's pace and leng
 
 **Voices.** Every line is packed into a few MP3 files under `public/voice/`, with a manifest keyed by caption text
 (`npx tsx scripts/voice-lines.ts` lists every line the game can speak), so a caption and its voice always match.
+Each file is decoded once and kept as 16-bit audio (half the memory of the browser's own 32-bit), packed off the
+main thread; a line is cut out of it the moment it is spoken.
 
 <p align="center"><img src="docs/media/divider.svg" alt="" width="100%"></p>
 
@@ -413,7 +416,7 @@ src/
     stars.ts              named stars and constellation figures
     journey.ts            chapters, unlocks and the save file
     dialogue.ts           reads scenes in order, with their voices
-    voice.ts              packed voice lines, decoded up front
+    voice.ts              packed voice lines: the opening's first, the rest in the background
     script.ts             opening, belt, Earth and identification lines
     clues.ts              evidence sites, their scans and archive entries
     finale.ts             the ships, recordings, reconstruction and ending

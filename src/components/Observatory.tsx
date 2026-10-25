@@ -8,7 +8,7 @@ import { AU_KM, byId, type BodyDef } from "@/lib/solar";
 import { announceUnlock, showReadout, store, toast, useUI, type Story } from "@/lib/store";
 import { audio } from "@/lib/audio";
 import { estimateMs, hush, inScene, readOut, remark, speak } from "@/lib/dialogue";
-import { preloadVoices } from "@/lib/voice";
+import { loadOtherVoices, preloadVoices } from "@/lib/voice";
 import { clearProgress, loadSave, unlocksFor, writeSave, type Chapter, type Journey } from "@/lib/journey";
 import { CLUES, DEEP_TOO_FAR, HINT_INWARD, HINT_NEAR_LINES, HINT_OUTWARD, SHIP1_DONE, deepBeat, explorationProgress, foundBeat, recovered, siteOpen, type ClueSite } from "@/lib/clues";
 import * as F from "@/lib/finale";
@@ -1197,8 +1197,10 @@ export default function Observatory() {
         engine.onHold = (text) => toast(text);
         engine.onBelt = actions.beltCrossed;
         engine.start();
-        // every map, model, shader and voice line loads now, behind the loading screen
+        // every map, model and shader loads now, behind the loading screen, with the voice lines a
+        // new game opens with (a resumed one may need any line at once, so it waits for them all)
         const part = { engine: 0, voice: 0 };
+        const firstLines = resumeRef.current ? null : [...OPENING, ...CONTACT, ...HOMEWARD, ...INBOUND_TALK, ...BELT_ENTER, ...BELT_CLEAR].map((c) => c.text);
         const report = () => store.set({ assets: Math.min(0.99, part.engine * 0.65 + part.voice * 0.35) });
         void Promise.all([
           engine.preloadAll((k) => {
@@ -1208,9 +1210,12 @@ export default function Observatory() {
           preloadVoices((k) => {
             part.voice = k;
             report();
-          }),
+          }, firstLines),
           audio.preloadScore(),
-        ]).then(() => store.set({ assets: 1 }));
+        ]).then(() => {
+          store.set({ assets: 1 });
+          loadOtherVoices();
+        });
       })
       .catch(() => store.set({ sceneError: true }));
 
